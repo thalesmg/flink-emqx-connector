@@ -1,0 +1,128 @@
+// flink-core
+import org.apache.flink.api.connector.source.Boundedness
+import org.apache.flink.api.connector.source.ReaderOutput
+import org.apache.flink.api.connector.source.Source
+import org.apache.flink.api.connector.source.SourceSplit
+import org.apache.flink.api.connector.source.SourceReader
+import org.apache.flink.api.connector.source.SourceReaderContext
+import org.apache.flink.api.connector.source.SplitEnumerator
+import org.apache.flink.api.connector.source.SplitEnumeratorContext
+import org.apache.flink.core.io.InputStatus
+import org.apache.flink.core.io.SimpleVersionedSerializer
+// flink-table-common
+import org.apache.flink.table.data.RowData
+// org.eclipse.paho.mqttv5.client
+import org.eclipse.paho.mqttv5.client.IMqttToken
+import org.eclipse.paho.mqttv5.client.MqttCallback
+import org.eclipse.paho.mqttv5.client.MqttClient
+import org.eclipse.paho.mqttv5.client.MqttConnectionOptions
+import org.eclipse.paho.mqttv5.client.MqttDisconnectResponse
+import org.eclipse.paho.mqttv5.common.MqttException
+import org.eclipse.paho.mqttv5.common.MqttMessage
+import org.eclipse.paho.mqttv5.common.packet.MqttProperties
+
+import java.util.Collections
+
+// val client = startClient("tcp://127.0.0.1:2883", "cid", "t/#", 1)
+def startClient(
+    brokerUri: String,
+    clientid: String,
+    topicFilter: String,
+    qos: Int
+): MqttClient =
+  val client = new MqttClient(brokerUri, clientid)
+  val conn_opts = new MqttConnectionOptions()
+  val callback = new MqttCallback() {
+    def connectComplete(reconnect: Boolean, uri: String) = println(
+      s"connected to $uri"
+    )
+    def disconnected(disconnectResponse: MqttDisconnectResponse) = println(
+      "disconnected"
+    )
+    def authPacketArrived(reasonCode: Int, props: MqttProperties) = println(
+      "auth arrived"
+    )
+    def deliveryComplete(token: IMqttToken) = println("delivery complete")
+    def mqttErrorOccurred(err: MqttException) = println(s"error: $err")
+    def messageArrived(topic: String, msg: MqttMessage) = println(
+      s"msg: ${String(msg.getPayload())}"
+    )
+  }
+  conn_opts.setCleanStart(false)
+  conn_opts.setAutomaticReconnect(true)
+  client.setCallback(callback)
+  client.connect(conn_opts)
+  client.subscribe(topicFilter, qos)
+  client
+
+class EMQXSourceSplit extends SourceSplit:
+  def splitId = "dummy"
+
+// EMQXSource("tcp://127.0.0.1:1883", "cid", "gname", "t/#", 1)
+class EMQXSource(
+    brokerUri: String,
+    clientIdPrefix: String,
+    groupName: String,
+    topicFilter: String,
+    qos: Int,
+    numClients: Int
+) extends Source[RowData, EMQXSourceSplit, Unit]:
+  require(numClients > 0, "invalid number of clients")
+  require(0 <= qos && qos <= 2, "invalid QoS")
+
+  // Member of `Source`
+  def createEnumerator(
+      enumContext: SplitEnumeratorContext[EMQXSourceSplit]
+  ): SplitEnumerator[EMQXSourceSplit, Unit] = null // todo?
+
+  // Member of `Source`
+  def getBoundedness(): Boundedness = Boundedness.CONTINUOUS_UNBOUNDED
+
+  // Member of `Source`
+  def getEnumeratorCheckpointSerializer(): SimpleVersionedSerializer[Unit] =
+    null // todo?
+
+  // Member of `Source`
+  def getSplitSerializer(): SimpleVersionedSerializer[EMQXSourceSplit] =
+    null // todo?
+
+  // Member of `Source`
+  def restoreEnumerator(
+      enumContext: SplitEnumeratorContext[EMQXSourceSplit],
+      checkpoint: Unit
+  ): SplitEnumerator[EMQXSourceSplit, Unit] = null // todo?
+
+  // Member of `SourceReaderFactory`
+  def createReader(
+      readerContext: SourceReaderContext
+  ): SourceReader[RowData, EMQXSourceSplit] = ???
+
+  /*
+   * SourceReader
+   */
+  class EMQXSourceReader extends SourceReader[RowData, EMQXSourceSplit]:
+    // Member of `SourceReader`
+    def start(): Unit = ()
+
+    // Member of `java.lang.AutoCloseable`
+    def close(): Unit = ()
+
+    // Member of `SourceReader`
+    def addSplits(splits: java.util.List[EMQXSourceSplit]): Unit = ()
+
+    // Member of `SourceReader`
+    def isAvailable(): java.util.concurrent.CompletableFuture[Void] =
+      null // todo?
+
+    // Member of `SourceReader`
+    def notifyNoMoreSplits(): Unit = ()
+
+    // Member of `SourceReader`
+    def pollNext(output: ReaderOutput[RowData]): InputStatus = ???
+
+    // Member of `SourceReader`
+    def snapshotState(checkpointId: Long): java.util.List[EMQXSourceSplit] =
+      Collections.emptyList()
+  end EMQXSourceReader
+
+end EMQXSource

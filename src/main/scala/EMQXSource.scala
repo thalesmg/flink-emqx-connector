@@ -7,6 +7,7 @@ import org.apache.flink.api.connector.source.SourceReader
 import org.apache.flink.api.connector.source.SourceReaderContext
 import org.apache.flink.api.connector.source.SplitEnumerator
 import org.apache.flink.api.connector.source.SplitEnumeratorContext
+import org.apache.flink.api.common.serialization.DeserializationSchema
 import org.apache.flink.core.io.InputStatus
 import org.apache.flink.core.io.SimpleVersionedSerializer
 // flink-table-common
@@ -59,16 +60,15 @@ class EMQXSourceSplit extends SourceSplit:
   def splitId = "dummy"
 
 // EMQXSource("tcp://127.0.0.1:1883", "cid", "gname", "t/#", 1)
-class EMQXSource(
+class EMQXSource[OUT](
     brokerUri: String,
-    clientIdPrefix: String,
-    groupName: String,
+    clientid: String,
     topicFilter: String,
     qos: Int,
-    numClients: Int
-) extends Source[RowData, EMQXSourceSplit, Unit]:
-  require(numClients > 0, "invalid number of clients")
+    deserializer: DeserializationSchema[OUT]
+) extends Source[OUT, EMQXSourceSplit, Unit]:
   require(0 <= qos && qos <= 2, "invalid QoS")
+  // TODO: define the split as each subscriber of a shared group
 
   // Member of `Source`
   def createEnumerator(
@@ -95,17 +95,33 @@ class EMQXSource(
   // Member of `SourceReaderFactory`
   def createReader(
       readerContext: SourceReaderContext
-  ): SourceReader[RowData, EMQXSourceSplit] = ???
+  ): SourceReader[OUT, EMQXSourceSplit] =
+    new EMQXSourceReader(brokerUri, clientid, topicFilter, qos, deserializer)
 
   /*
    * SourceReader
    */
-  class EMQXSourceReader extends SourceReader[RowData, EMQXSourceSplit]:
+  class EMQXSourceReader[OUT](
+      brokerUri: String,
+      clientid: String,
+      topicFilter: String,
+      qos: Int,
+      deserializer: DeserializationSchema[OUT]
+  ) extends SourceReader[OUT, EMQXSourceSplit]:
+    val queue: java.util.Queue[OUT] =
+      new java.util.concurrent.ConcurrentLinkedQueue()
+    var client: MqttClient = null
+
     // Member of `SourceReader`
-    def start(): Unit = ()
+    def start(): Unit = {
+      client = startClient(brokerUri, clientid, topicFilter, qos, deserializer)
+      ()
+    }
 
     // Member of `java.lang.AutoCloseable`
-    def close(): Unit = ()
+    def close(): Unit =
+      client.disconnect()
+      client.close()
 
     // Member of `SourceReader`
     def addSplits(splits: java.util.List[EMQXSourceSplit]): Unit = ()
@@ -118,11 +134,46 @@ class EMQXSource(
     def notifyNoMoreSplits(): Unit = ()
 
     // Member of `SourceReader`
-    def pollNext(output: ReaderOutput[RowData]): InputStatus = ???
+    def pollNext(output: ReaderOutput[OUT]): InputStatus =
+      queue.poll match
+        case null  => InputStatus.NOTHING_AVAILABLE
+        case value => {
+          output.collect(value)
+          InputStatus.MORE_AVAILABLE
+        }
 
     // Member of `SourceReader`
     def snapshotState(checkpointId: Long): java.util.List[EMQXSourceSplit] =
       Collections.emptyList()
+
+    private def startClient(
+        brokerUri: String,
+        clientid: String,
+        topicFilter: String,
+        qos: Int,
+        deserializer: DeserializationSchema[OUT]
+    ): MqttClient =
+      val client = new MqttClient(brokerUri, clientid)
+      val conn_opts = new MqttConnectionOptions()
+      val callback = new MqttCallback() {
+        // todo: add logging
+        def connectComplete(reconnect: Boolean, uri: String) = ()
+        def disconnected(disconnectResponse: MqttDisconnectResponse) = ()
+        def authPacketArrived(reasonCode: Int, props: MqttProperties) = ()
+        def deliveryComplete(token: IMqttToken) = ()
+        def mqttErrorOccurred(err: MqttException) = println(s"error: $err")
+        def messageArrived(topic: String, msg: MqttMessage) =
+          // println(s"msg: ${String(msg.getPayload())}")
+          val decoded: OUT = deserializer.deserialize(msg.getPayload)
+          queue.add(decoded)
+      }
+      conn_opts.setCleanStart(false)
+      conn_opts.setAutomaticReconnect(true)
+      client.setCallback(callback)
+      client.connect(conn_opts)
+      client.subscribe(topicFilter, qos)
+      client
+
   end EMQXSourceReader
 
 end EMQXSource

@@ -1,4 +1,5 @@
 // flink-core
+import org.apache.flink.connector.base.source.reader.SourceReaderBase
 import org.apache.flink.api.connector.source.Boundedness
 import org.apache.flink.api.connector.source.ReaderOutput
 import org.apache.flink.api.connector.source.Source
@@ -7,9 +8,17 @@ import org.apache.flink.api.connector.source.SourceReader
 import org.apache.flink.api.connector.source.SourceReaderContext
 import org.apache.flink.api.connector.source.SplitEnumerator
 import org.apache.flink.api.connector.source.SplitEnumeratorContext
+import org.apache.flink.api.connector.source.SplitEnumerator
+import org.apache.flink.api.connector.source.SplitEnumeratorContext
 import org.apache.flink.api.common.serialization.DeserializationSchema
 import org.apache.flink.core.io.InputStatus
 import org.apache.flink.core.io.SimpleVersionedSerializer
+import org.apache.flink.api.java.typeutils.ResultTypeQueryable
+import org.apache.flink.api.common.typeinfo.TypeInformation
+import org.apache.flink.api.common.typeinfo.TypeHint
+import org.apache.flink.configuration.Configuration
+import org.apache.flink.connector.base.source.reader.RecordEmitter
+import org.apache.flink.connector.base.source.reader.fetcher.SplitFetcherManager
 // flink-table-common
 import org.apache.flink.table.data.RowData
 // org.eclipse.paho.mqttv5.client
@@ -66,14 +75,19 @@ class EMQXSource[OUT](
     topicFilter: String,
     qos: Int,
     deserializer: DeserializationSchema[OUT]
-) extends Source[OUT, EMQXSourceSplit, Unit]:
+) extends Source[OUT, EMQXSourceSplit, Unit] with ResultTypeQueryable[OUT]:
   require(0 <= qos && qos <= 2, "invalid QoS")
   // TODO: define the split as each subscriber of a shared group
+
+  println(s">>>>>>>>>>>> starting source")
 
   // Member of `Source`
   def createEnumerator(
       enumContext: SplitEnumeratorContext[EMQXSourceSplit]
-  ): SplitEnumerator[EMQXSourceSplit, Unit] = null // todo?
+  ): SplitEnumerator[EMQXSourceSplit, Unit] =
+    for {l <- Thread.currentThread.getStackTrace} do println(l)
+    println(s">>>>>>>>>>>> starting enumerator")
+    new EMQXSplitEnumertor()
 
   // Member of `Source`
   def getBoundedness(): Boundedness = Boundedness.CONTINUOUS_UNBOUNDED
@@ -96,7 +110,25 @@ class EMQXSource[OUT](
   def createReader(
       readerContext: SourceReaderContext
   ): SourceReader[OUT, EMQXSourceSplit] =
+    println(s">>>>>>>>>>>> starting reader")
     new EMQXSourceReader(brokerUri, clientid, topicFilter, qos, deserializer)
+
+  // Member of `ResultTypeQueryable`
+  def getProducedType: TypeInformation[OUT] =
+    println(s">>>>>>>>>>>> getting type")
+    deserializer.getProducedType()
+
+  /*
+   * SplitEnumerator
+   */
+  class EMQXSplitEnumertor extends SplitEnumerator[EMQXSourceSplit, Unit]:
+    def start(): Unit = ()
+    def close(): Unit = ()
+    def addReader(subTaskId: Int): Unit = ()
+    def addSplitsBack(splits: java.util.List[EMQXSourceSplit], subTaskId: Int): Unit = ()
+    def handleSplitRequest(subTaskId: Int, requesterHostname: String): Unit = ()
+    def snapshotState(snapshotId: Long): Unit = ()
+  end EMQXSplitEnumertor
 
   /*
    * SourceReader
@@ -111,9 +143,11 @@ class EMQXSource[OUT](
     val queue: java.util.Queue[OUT] =
       new java.util.concurrent.ConcurrentLinkedQueue()
     var client: MqttClient = null
+    println(s">>>>>>>>>>>>>>>>>>>> reader creating")
 
     // Member of `SourceReader`
     def start(): Unit = {
+      println(s">>>>>>>>>>>>>>>>>>>> reader starting")
       client = startClient(brokerUri, clientid, topicFilter, qos, deserializer)
       ()
     }
@@ -153,7 +187,7 @@ class EMQXSource[OUT](
         qos: Int,
         deserializer: DeserializationSchema[OUT]
     ): MqttClient =
-      val client = new MqttClient(brokerUri, clientid)
+      val client = new MqttClient(brokerUri, clientid, null)
       val conn_opts = new MqttConnectionOptions()
       val callback = new MqttCallback() {
         // todo: add logging

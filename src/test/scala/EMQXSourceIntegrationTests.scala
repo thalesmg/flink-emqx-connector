@@ -100,12 +100,19 @@ class EMQXSourceIntegrationTests extends FunSuite with TestContainerForAll {
       val source =
         env
           .fromSource(emqxSource, WatermarkStrategy.noWatermarks(), "emqx")
-          .returns(classOf[String])
+          // .print()
       val sink = new CollectSink[String]()
       source.sinkTo(sink)
-      val jobGraph = env.getStreamGraph().getJobGraph()
-      val clusterClient = flinkCluster.getClusterClient()
-      val jobId = clusterClient.submitJob(jobGraph).get()
+
+      // val jobGraph = env.getStreamGraph().getJobGraph()
+      // val clusterClient = flinkCluster.getClusterClient()
+      // val jobId = clusterClient.submitJob(jobGraph).get()
+
+      // val streamGraph = env.getStreamGraph()
+      // env.execute(streamGraph)
+
+      env.execute()
+
       val client = startClient(brokerUri)
       // for debugging
       client.subscribe(topicFilter, 2)
@@ -115,7 +122,8 @@ class EMQXSourceIntegrationTests extends FunSuite with TestContainerForAll {
       CommonTestUtils.waitUntilCondition(new SupplierWithException[java.lang.Boolean, Exception] {
         def get: java.lang.Boolean = sink.getCount == 3
       }, 200L, 5)
-      clusterClient.cancel(jobId)
+
+      // clusterClient.cancel(jobId)
       client.disconnect()
       client.close()
       assert(false, "todo")

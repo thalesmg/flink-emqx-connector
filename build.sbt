@@ -26,5 +26,24 @@ lazy val root = project
     libraryDependencies += "org.scalameta" %% "munit" % "1.0.0" % Test,
     libraryDependencies += "com.dimafeng" %% "testcontainers-scala-munit" % "0.43.0" % Test,
     libraryDependencies += "org.apache.flink" % "flink-test-utils" % "2.1.0" % Test,
-    libraryDependencies += "com.fasterxml.jackson.core" % "jackson-databind" % "2.19.2" % Test,
+    // libraryDependencies += "com.fasterxml.jackson.core" % "jackson-databind" % "2.19.2" % Test,
+  )
+
+lazy val poc = project
+  .in(file("poc"))
+  .dependsOn(root % "compile->compile;compile->test")
+  .settings(
+    scalaVersion := scala3Version,
+
+    publish / skip := true,
+
+    // vital to avoid bizarre `ClassNotFoundException`s ...
+    fork := true,
+
+    libraryDependencies += "org.apache.flink" % "flink-core" % "2.1.0",
+    libraryDependencies += "org.apache.flink" % "flink-runtime" % "2.1.0",
+    libraryDependencies += "org.apache.flink" % "flink-clients" % "2.1.0",
+
+    // libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.10",
+    // libraryDependencies += "com.typesafe.scala-logging" %% "scala-logging" % "3.9.4"
   )

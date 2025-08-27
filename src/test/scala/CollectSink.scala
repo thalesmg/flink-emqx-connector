@@ -17,6 +17,7 @@ class CollectSink[OUT] extends Sink[OUT] {
 
   class CollectSinkWriter extends SinkWriter[OUT] {
     override def write(element: OUT, context: SinkWriter.Context) =
+      println(s"got element: ${element}")
       results.add(element)
       count.incrementAndGet()
 

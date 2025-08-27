@@ -19,6 +19,7 @@ import org.apache.flink.api.common.typeinfo.TypeHint
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.connector.base.source.reader.RecordEmitter
 import org.apache.flink.connector.base.source.reader.fetcher.SplitFetcherManager
+import org.apache.flink.streaming.runtime.io.MultipleFuturesAvailabilityHelper
 // flink-table-common
 import org.apache.flink.table.data.RowData
 // org.eclipse.paho.mqttv5.client
@@ -75,18 +76,16 @@ class EMQXSource[OUT](
     topicFilter: String,
     qos: Int,
     deserializer: DeserializationSchema[OUT]
-) extends Source[OUT, EMQXSourceSplit, Unit] with ResultTypeQueryable[OUT]:
+) extends Source[OUT, EMQXSourceSplit, Unit]
+    with ResultTypeQueryable[OUT]:
   require(0 <= qos && qos <= 2, "invalid QoS")
   // TODO: define the split as each subscriber of a shared group
-
-  println(s">>>>>>>>>>>> starting source")
 
   // Member of `Source`
   def createEnumerator(
       enumContext: SplitEnumeratorContext[EMQXSourceSplit]
   ): SplitEnumerator[EMQXSourceSplit, Unit] =
-    for {l <- Thread.currentThread.getStackTrace} do println(l)
-    println(s">>>>>>>>>>>> starting enumerator")
+    // for {l <- Thread.currentThread.getStackTrace} do println(l)
     new EMQXSplitEnumertor()
 
   // Member of `Source`
@@ -98,24 +97,23 @@ class EMQXSource[OUT](
 
   // Member of `Source`
   def getSplitSerializer(): SimpleVersionedSerializer[EMQXSourceSplit] =
-    null // todo?
+    new SimpleSerializer[EMQXSourceSplit]
 
   // Member of `Source`
   def restoreEnumerator(
       enumContext: SplitEnumeratorContext[EMQXSourceSplit],
       checkpoint: Unit
-  ): SplitEnumerator[EMQXSourceSplit, Unit] = null // todo?
+  ): SplitEnumerator[EMQXSourceSplit, Unit] =
+    null // todo?
 
   // Member of `SourceReaderFactory`
   def createReader(
       readerContext: SourceReaderContext
   ): SourceReader[OUT, EMQXSourceSplit] =
-    println(s">>>>>>>>>>>> starting reader")
     new EMQXSourceReader(brokerUri, clientid, topicFilter, qos, deserializer)
 
   // Member of `ResultTypeQueryable`
   def getProducedType: TypeInformation[OUT] =
-    println(s">>>>>>>>>>>> getting type")
     deserializer.getProducedType()
 
   /*
@@ -125,7 +123,10 @@ class EMQXSource[OUT](
     def start(): Unit = ()
     def close(): Unit = ()
     def addReader(subTaskId: Int): Unit = ()
-    def addSplitsBack(splits: java.util.List[EMQXSourceSplit], subTaskId: Int): Unit = ()
+    def addSplitsBack(
+        splits: java.util.List[EMQXSourceSplit],
+        subTaskId: Int
+    ): Unit = ()
     def handleSplitRequest(subTaskId: Int, requesterHostname: String): Unit = ()
     def snapshotState(snapshotId: Long): Unit = ()
   end EMQXSplitEnumertor
@@ -143,11 +144,10 @@ class EMQXSource[OUT](
     val queue: java.util.Queue[OUT] =
       new java.util.concurrent.ConcurrentLinkedQueue()
     var client: MqttClient = null
-    println(s">>>>>>>>>>>>>>>>>>>> reader creating")
+    val availabilityHelper = new MultipleFuturesAvailabilityHelper(1)
 
     // Member of `SourceReader`
     def start(): Unit = {
-      println(s">>>>>>>>>>>>>>>>>>>> reader starting")
       client = startClient(brokerUri, clientid, topicFilter, qos, deserializer)
       ()
     }
@@ -162,7 +162,11 @@ class EMQXSource[OUT](
 
     // Member of `SourceReader`
     def isAvailable(): java.util.concurrent.CompletableFuture[Void] =
-      null // todo?
+      availabilityHelper.resetToUnAvailable()
+      // todo?
+      availabilityHelper
+        .getAvailableFuture()
+        .asInstanceOf[java.util.concurrent.CompletableFuture[Void]]
 
     // Member of `SourceReader`
     def notifyNoMoreSplits(): Unit = ()
@@ -195,11 +199,15 @@ class EMQXSource[OUT](
         def disconnected(disconnectResponse: MqttDisconnectResponse) = ()
         def authPacketArrived(reasonCode: Int, props: MqttProperties) = ()
         def deliveryComplete(token: IMqttToken) = ()
-        def mqttErrorOccurred(err: MqttException) = println(s"error: $err")
+        def mqttErrorOccurred(err: MqttException) = ()
         def messageArrived(topic: String, msg: MqttMessage) =
-          // println(s"msg: ${String(msg.getPayload())}")
           val decoded: OUT = deserializer.deserialize(msg.getPayload)
           queue.add(decoded)
+          val cachedPreviousFuture =
+            availabilityHelper.getAvailableFuture
+              .asInstanceOf[java.util.concurrent.CompletableFuture[Void]]
+          cachedPreviousFuture.complete(null)
+          ()
       }
       conn_opts.setCleanStart(false)
       conn_opts.setAutomaticReconnect(true)

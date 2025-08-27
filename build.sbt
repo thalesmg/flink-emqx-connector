@@ -17,6 +17,10 @@ lazy val root = project
     // https://mvnrepository.com/artifact/org.eclipse.paho/org.eclipse.paho.mqttv5.client
     libraryDependencies += "org.eclipse.paho" % "org.eclipse.paho.mqttv5.client" % "1.2.5",
 
+    // https://mvnrepository.com/artifact/org.apache.flink/flink-streaming-java
+    // libraryDependencies += "org.apache.flink" % "flink-runtime" % "2.1.0" % "runtime, provided",
+    // libraryDependencies += "org.apache.flink" % "flink-clients" % "2.1.0" % "runtime, provided",
+
     Test / fork := true,
 
     libraryDependencies += "org.scalameta" %% "munit" % "1.0.0" % Test,

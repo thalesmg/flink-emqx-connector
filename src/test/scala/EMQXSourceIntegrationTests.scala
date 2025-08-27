@@ -5,6 +5,7 @@ import org.testcontainers.containers.wait.strategy.Wait
 import java.net.URL
 import scala.io.Source
 
+import org.apache.flink.api.common.JobStatus
 import org.apache.flink.streaming.api.datastream.DataStreamSource
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
 import org.apache.flink.util.function.SupplierWithException
@@ -21,6 +22,8 @@ import org.eclipse.paho.mqttv5.client.MqttDisconnectResponse
 import org.eclipse.paho.mqttv5.common.MqttException
 import org.eclipse.paho.mqttv5.common.MqttMessage
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties
+
+import java.util.concurrent.atomic.AtomicInteger
 
 class EMQXSourceIntegrationTests extends FunSuite with TestContainerForAll {
 
@@ -100,33 +103,44 @@ class EMQXSourceIntegrationTests extends FunSuite with TestContainerForAll {
       val source =
         env
           .fromSource(emqxSource, WatermarkStrategy.noWatermarks(), "emqx")
-          // .print()
       val sink = new CollectSink[String]()
       source.sinkTo(sink)
 
       // val jobGraph = env.getStreamGraph().getJobGraph()
       // val clusterClient = flinkCluster.getClusterClient()
       // val jobId = clusterClient.submitJob(jobGraph).get()
+      // Thread.sleep(500)
+
+      val jobClient = env.executeAsync()
+
+      CommonTestUtils.waitUntilCondition(new SupplierWithException[java.lang.Boolean, Exception] {
+        def get: java.lang.Boolean =
+          jobClient.getJobStatus.get == JobStatus.RUNNING
+      }, 500L, 5)
 
       // val streamGraph = env.getStreamGraph()
       // env.execute(streamGraph)
 
-      env.execute()
+      // env.execute()
 
       val client = startClient(brokerUri)
+
       // for debugging
-      client.subscribe(topicFilter, 2)
+      // client.subscribe(topicFilter, 2)
+
       val topic = "t/1"
       for {n <- 1 until 4}
         do client.publish(topic, new MqttMessage(n.toString.getBytes))
       CommonTestUtils.waitUntilCondition(new SupplierWithException[java.lang.Boolean, Exception] {
-        def get: java.lang.Boolean = sink.getCount == 3
+        def get: java.lang.Boolean =
+          sink.getCount() == 3
       }, 200L, 5)
 
       // clusterClient.cancel(jobId)
+      jobClient.cancel()
+
       client.disconnect()
       client.close()
-      assert(false, "todo")
     }
   }
 }

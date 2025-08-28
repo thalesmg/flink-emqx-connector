@@ -17,10 +17,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '24'
-          cache: sbt
-      - name: Setup sbt installer
-        uses: sbt/setup-sbt@v1.1.12
-      - name: check formatting
-        run: sbt scalafmtCheck
+          cache: maven
       - name: run tests
-        run: sbt test
+        run: mvn clean test

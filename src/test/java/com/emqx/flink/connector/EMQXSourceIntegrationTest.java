@@ -14,6 +14,9 @@ import com.emqx.flink.connector.EMQXSource;
 
 import org.testcontainers.containers.wait.strategy.Wait;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
@@ -34,22 +37,21 @@ import org.apache.flink.runtime.testutils.CommonTestUtils;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
 
-
 @Testcontainers
 class EMQXSourceIntegrationTests {
+    private static final Logger LOG = LoggerFactory.getLogger(EMQXSplitEnumerator.class);
+
     @Container
-    public GenericContainer emqx =
-        new GenericContainer(DockerImageName.parse("emqx/emqx-enterprise:5.10.0"))
-        .withExposedPorts(18083, 1883)
-        .waitingFor(Wait.forHttp("/status").forPort(18083));
+    public GenericContainer emqx = new GenericContainer(DockerImageName.parse("emqx/emqx-enterprise:5.10.0"))
+            .withExposedPorts(18083, 1883)
+            .waitingFor(Wait.forHttp("/status").forPort(18083));
 
     @Rule
-    public final MiniClusterWithClientResource flinkCluster =
-            new MiniClusterWithClientResource(
-                    new MiniClusterResourceConfiguration.Builder()
-                            .setNumberSlotsPerTaskManager(1)
-                            .setNumberTaskManagers(1)
-                            .build());
+    public final MiniClusterWithClientResource flinkCluster = new MiniClusterWithClientResource(
+            new MiniClusterResourceConfiguration.Builder()
+                    .setNumberSlotsPerTaskManager(1)
+                    .setNumberTaskManagers(1)
+                    .build());
 
     MqttClient startClient(String brokerUri) throws Exception {
         MqttClient client = new MqttClient(brokerUri, null, null);
@@ -109,19 +111,20 @@ class EMQXSourceIntegrationTests {
         source.sinkTo(sink);
         JobClient jobClient = env.executeAsync();
         // fixme: this works with the scala version, but not here...
-        // CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING, 500L, 5);
+        // CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() ==
+        // JobStatus.RUNNING, 500L, 5);
         Thread.sleep(500);
 
         MqttClient client = startClient(brokerUri);
         String topic = "t/1";
         // for debugging
         client.subscribe(topicFilter, qos);
-        int[] ns = {1, 2, 3};
+        int[] ns = { 1, 2, 3 };
         for (int n : ns) {
             client.publish(topic, new MqttMessage(String.valueOf(n).getBytes()));
         }
         CommonTestUtils.waitUntilCondition(() -> sink.getCount() == 3, 200L, 5);
-        
+
         jobClient.cancel();
         client.disconnect();
         client.close();

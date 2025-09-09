@@ -21,6 +21,7 @@ import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.base.source.reader.RecordEmitter;
 import org.apache.flink.connector.base.source.reader.fetcher.SplitFetcherManager;
+import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.runtime.io.MultipleFuturesAvailabilityHelper;
 import org.apache.flink.util.Preconditions;
 // flink-table-common;
@@ -35,20 +36,28 @@ import org.eclipse.paho.mqttv5.common.MqttException;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Collections;
 
 public class EMQXSource<OUT> implements Source<OUT, EMQXSourceSplit, EMQXCheckpoint>, ResultTypeQueryable<OUT> {
+    private static final Logger LOG = LoggerFactory.getLogger(EMQXSplitEnumerator.class);
+
     private String brokerUri;
     private String clientid;
+    private String groupName;
     private String topicFilter;
     private int qos;
     private DeserializationSchema<OUT> deserializer;
 
-    public EMQXSource(String brokerUri, String clientid, String topicFilter, int qos,
+    public EMQXSource(String brokerUri, String clientid, String groupName, String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer) {
         Preconditions.checkArgument(0 <= qos && qos <= 2, "invalid qos: %", qos);
+        // TODO: validate group name and clientid
         this.brokerUri = brokerUri;
         this.clientid = clientid;
+        this.groupName = groupName;
         this.topicFilter = topicFilter;
         this.qos = qos;
         this.deserializer = deserializer;
@@ -71,8 +80,11 @@ public class EMQXSource<OUT> implements Source<OUT, EMQXSourceSplit, EMQXCheckpo
     }
 
     @Override
-    public SourceReader<OUT, EMQXSourceSplit> createReader(SourceReaderContext arg0) throws Exception {
-        return new EMQXSourceReader<>(brokerUri, clientid, topicFilter, qos, deserializer);
+    public SourceReader<OUT, EMQXSourceSplit> createReader(SourceReaderContext context) throws Exception {
+        int subTaskId = context.getIndexOfSubtask();
+        String newClientid = clientid + subTaskId;
+        LOG.debug("Starting Source Reader; clientid: {}; group name: {}", newClientid, groupName);
+        return new EMQXSourceReader<>(brokerUri, newClientid, groupName, topicFilter, qos, deserializer);
     }
 
     @Override

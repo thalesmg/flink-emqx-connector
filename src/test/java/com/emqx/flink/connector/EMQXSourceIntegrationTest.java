@@ -97,15 +97,16 @@ class EMQXSourceIntegrationTests {
     @Test
     public void messageDelivery() throws Exception {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        // TODO: generate clientids so that we may have parallelism....
-        env.setParallelism(1);
+        env.setParallelism(3);
         String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
         String clientid = "cid";
+        String groupName = "gname";
         String topicFilter = "t/#";
         int qos = 1;
         StringDeserializer deserializer = new StringDeserializer();
 
-        EMQXSource<String> emqxSource = new EMQXSource<String>(brokerUri, clientid, topicFilter, qos, deserializer);
+        EMQXSource<String> emqxSource = new EMQXSource<String>(brokerUri, clientid, groupName, topicFilter, qos,
+                deserializer);
         DataStreamSource<String> source = env.fromSource(emqxSource, WatermarkStrategy.noWatermarks(), "emqx");
         CollectSink<String> sink = new CollectSink<String>();
         source.sinkTo(sink);

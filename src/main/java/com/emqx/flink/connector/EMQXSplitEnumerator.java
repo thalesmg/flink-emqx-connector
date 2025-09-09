@@ -16,7 +16,7 @@ public class EMQXSplitEnumerator implements SplitEnumerator<EMQXSourceSplit, EMQ
     @Override
     public void start() {
         // TODO Auto-generated method stub
-
+        LOG.debug("start");
     }
 
     @Override

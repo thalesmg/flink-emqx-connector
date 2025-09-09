@@ -6,6 +6,9 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.connector.source.ReaderOutput;
 import org.apache.flink.api.connector.source.SourceReader;
@@ -22,27 +25,32 @@ import org.eclipse.paho.mqttv5.common.MqttSecurityException;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 
 public class EMQXSourceReader<OUT> implements SourceReader<OUT, EMQXSourceSplit> {
+    private static final Logger LOG = LoggerFactory.getLogger(EMQXSourceReader.class);
+
     private Queue<OUT> queue = new ConcurrentLinkedQueue<>();
     private MqttClient client;
     private MultipleFuturesAvailabilityHelper availabilityHelper = new MultipleFuturesAvailabilityHelper(1);
 
     private String brokerUri;
     private String clientid;
+    private String groupName;
     private String topicFilter;
     private int qos;
     private DeserializationSchema<OUT> deserializer;
 
-    EMQXSourceReader(String brokerUri, String clientid, String topicFilter, int qos,
+    EMQXSourceReader(String brokerUri, String clientid, String groupName, String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer) {
         this.brokerUri = brokerUri;
         this.clientid = clientid;
+        this.groupName = groupName;
         this.topicFilter = topicFilter;
         this.qos = qos;
         this.deserializer = deserializer;
     }
 
-    MqttClient startClient(String brokerUri, String clientid, String topicFilter, int qos,
+    MqttClient startClient(String brokerUri, String clientid, String groupName, String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer) throws MqttSecurityException, MqttException {
+        LOG.debug("Starting Source Reader with clientid {}", clientid);
         MqttClient client = new MqttClient(brokerUri, clientid, null);
         MqttConnectionOptions connOpts = new MqttConnectionOptions();
         MqttCallback callback = new MqttCallback() {
@@ -81,18 +89,17 @@ public class EMQXSourceReader<OUT> implements SourceReader<OUT, EMQXSourceSplit>
         connOpts.setAutomaticReconnect(true);
         client.setCallback(callback);
         client.connect(connOpts);
-        client.subscribe(topicFilter, qos);
+        String subTopic = "$share/" + groupName + "/" + topicFilter;
+        client.subscribe(subTopic, qos);
         return client;
     }
 
     @Override
     public void start() {
         try {
-            client = startClient(brokerUri, clientid, topicFilter, qos, deserializer);
+            client = startClient(brokerUri, clientid, groupName, topicFilter, qos, deserializer);
         } catch (Exception e) {
-            // TODO: add logging
-            System.err.println(e.getMessage());
-            e.printStackTrace();
+            LOG.error("Error starting client: {}", e.getMessage(), e);
         }
     }
 
@@ -106,6 +113,7 @@ public class EMQXSourceReader<OUT> implements SourceReader<OUT, EMQXSourceSplit>
 
     @Override
     public void addSplits(List<EMQXSourceSplit> splits) {
+        LOG.debug("Adding splits for clientid {}; splits: {}", clientid, splits);
     }
 
     @Override

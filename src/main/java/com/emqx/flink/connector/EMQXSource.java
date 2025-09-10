@@ -41,7 +41,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 
-public class EMQXSource<OUT> implements Source<OUT, EMQXSourceSplit, EMQXCheckpoint>, ResultTypeQueryable<OUT> {
+public class EMQXSource<OUT>
+        implements Source<EMQXMessage<OUT>, EMQXSourceSplit, EMQXCheckpoint>, ResultTypeQueryable<EMQXMessage<OUT>> {
     private static final Logger LOG = LoggerFactory.getLogger(EMQXSplitEnumerator.class);
 
     private String brokerUri;
@@ -80,7 +81,7 @@ public class EMQXSource<OUT> implements Source<OUT, EMQXSourceSplit, EMQXCheckpo
     }
 
     @Override
-    public SourceReader<OUT, EMQXSourceSplit> createReader(SourceReaderContext context) throws Exception {
+    public SourceReader<EMQXMessage<OUT>, EMQXSourceSplit> createReader(SourceReaderContext context) throws Exception {
         int subTaskId = context.getIndexOfSubtask();
         String newClientid = clientid + subTaskId;
         LOG.debug("Starting Source Reader; clientid: {}; group name: {}", newClientid, groupName);
@@ -94,8 +95,9 @@ public class EMQXSource<OUT> implements Source<OUT, EMQXSourceSplit, EMQXCheckpo
     }
 
     @Override
-    public TypeInformation<OUT> getProducedType() {
-        return deserializer.getProducedType();
+    public TypeInformation<EMQXMessage<OUT>> getProducedType() {
+        // return deserializer.getProducedType();
+        return TypeInformation.of(new TypeHint<EMQXMessage<OUT>>(){});
     }
 
     @Override

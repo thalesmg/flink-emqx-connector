@@ -105,10 +105,13 @@ class EMQXSourceIntegrationTests {
         int qos = 1;
         StringDeserializer deserializer = new StringDeserializer();
 
-        EMQXSource<String> emqxSource = new EMQXSource<String>(brokerUri, clientid, groupName, topicFilter, qos,
+        EMQXSource<String> emqxSource = new EMQXSource<String>(brokerUri, clientid, groupName,
+                topicFilter,
+                qos,
                 deserializer);
-        DataStreamSource<String> source = env.fromSource(emqxSource, WatermarkStrategy.noWatermarks(), "emqx");
-        CollectSink<String> sink = new CollectSink<String>();
+        DataStreamSource<EMQXMessage<String>> source = env.fromSource(emqxSource, WatermarkStrategy.noWatermarks(),
+                "emqx");
+        CollectSink<EMQXMessage<String>> sink = new CollectSink<EMQXMessage<String>>();
         source.sinkTo(sink);
         JobClient jobClient = env.executeAsync();
         // fixme: this works with the scala version, but not here...

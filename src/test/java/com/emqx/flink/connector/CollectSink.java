@@ -36,6 +36,7 @@ public class CollectSink<OUT> implements Sink<OUT> {
 
         @Override
         public void write(OUT element, Context context) throws IOException, InterruptedException {
+            LOG.info("received element: {}", element);
             results.add(element);
             int currentCount = count.incrementAndGet();
             LOG.info("current count: {}", currentCount);

@@ -24,10 +24,10 @@ import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.eclipse.paho.mqttv5.common.MqttSecurityException;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 
-public class EMQXSourceReader<OUT> implements SourceReader<OUT, EMQXSourceSplit> {
+public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQXSourceSplit> {
     private static final Logger LOG = LoggerFactory.getLogger(EMQXSourceReader.class);
 
-    private Queue<OUT> queue = new ConcurrentLinkedQueue<>();
+    private Queue<EMQXMessage<OUT>> queue = new ConcurrentLinkedQueue<>();
     private MqttClient client;
     private MultipleFuturesAvailabilityHelper availabilityHelper = new MultipleFuturesAvailabilityHelper(1);
 
@@ -79,7 +79,9 @@ public class EMQXSourceReader<OUT> implements SourceReader<OUT, EMQXSourceSplit>
             @Override
             public void messageArrived(String topic, MqttMessage message) throws Exception {
                 OUT decoded = deserializer.deserialize(message.getPayload());
-                queue.add(decoded);
+                EMQXMessage<OUT> emqxMessage = new EMQXMessage<>(
+                        topic, message.getQos(), message.isRetained(), message.getProperties(), decoded);
+                queue.add(emqxMessage);
                 CompletableFuture<Void> cachedPreviousFuture = (CompletableFuture<Void>) availabilityHelper
                         .getAvailableFuture();
                 cachedPreviousFuture.complete(null);
@@ -127,8 +129,8 @@ public class EMQXSourceReader<OUT> implements SourceReader<OUT, EMQXSourceSplit>
     }
 
     @Override
-    public InputStatus pollNext(ReaderOutput<OUT> output) throws Exception {
-        OUT value = queue.poll();
+    public InputStatus pollNext(ReaderOutput<EMQXMessage<OUT>> output) throws Exception {
+        EMQXMessage<OUT> value = queue.poll();
         if (value == null) {
             return InputStatus.NOTHING_AVAILABLE;
         } else {

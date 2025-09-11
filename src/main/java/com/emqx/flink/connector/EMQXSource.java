@@ -43,7 +43,7 @@ import java.util.Collections;
 
 public class EMQXSource<OUT>
         implements Source<EMQXMessage<OUT>, EMQXSourceSplit, EMQXCheckpoint>, ResultTypeQueryable<EMQXMessage<OUT>> {
-    private static final Logger LOG = LoggerFactory.getLogger(EMQXSplitEnumerator.class);
+    private static final Logger LOG = LoggerFactory.getLogger(EMQXSource.class);
 
     private String brokerUri;
     private String clientid;
@@ -85,7 +85,7 @@ public class EMQXSource<OUT>
         int subTaskId = context.getIndexOfSubtask();
         String newClientid = clientid + subTaskId;
         LOG.debug("Starting Source Reader; clientid: {}; group name: {}", newClientid, groupName);
-        return new EMQXSourceReader<>(brokerUri, newClientid, groupName, topicFilter, qos, deserializer);
+        return new EMQXSourceReader<>(context, brokerUri, newClientid, groupName, topicFilter, qos, deserializer);
     }
 
     @Override
@@ -97,7 +97,8 @@ public class EMQXSource<OUT>
     @Override
     public TypeInformation<EMQXMessage<OUT>> getProducedType() {
         // return deserializer.getProducedType();
-        return TypeInformation.of(new TypeHint<EMQXMessage<OUT>>(){});
+        return TypeInformation.of(new TypeHint<EMQXMessage<OUT>>() {
+        });
     }
 
     @Override

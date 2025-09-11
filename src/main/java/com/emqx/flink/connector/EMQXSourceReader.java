@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.connector.source.ReaderOutput;
 import org.apache.flink.api.connector.source.SourceReader;
+import org.apache.flink.api.connector.source.SourceReaderContext;
 import org.apache.flink.core.io.InputStatus;
 import org.apache.flink.streaming.runtime.io.MultipleFuturesAvailabilityHelper;
 import org.eclipse.paho.mqttv5.client.IMqttToken;
@@ -31,6 +32,7 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     private MqttClient client;
     private MultipleFuturesAvailabilityHelper availabilityHelper = new MultipleFuturesAvailabilityHelper(1);
 
+    private SourceReaderContext context;
     private String brokerUri;
     private String clientid;
     private String groupName;
@@ -38,8 +40,9 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     private int qos;
     private DeserializationSchema<OUT> deserializer;
 
-    EMQXSourceReader(String brokerUri, String clientid, String groupName, String topicFilter, int qos,
+    EMQXSourceReader(SourceReaderContext context, String brokerUri, String clientid, String groupName, String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer) {
+        this.context = context;
         this.brokerUri = brokerUri;
         this.clientid = clientid;
         this.groupName = groupName;

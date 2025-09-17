@@ -11,7 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class CollectSink<OUT> implements Sink<OUT> {
-    private static final Logger LOG = LoggerFactory.getLogger(EMQXSplitEnumerator.class);
+    private static final Logger LOG = LoggerFactory.getLogger(CollectSink.class);
 
     static private AtomicInteger count = new AtomicInteger();
     private ArrayList<OUT> results = new ArrayList<>();

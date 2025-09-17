@@ -39,7 +39,7 @@ import org.apache.flink.test.util.MiniClusterWithClientResource;
 
 @Testcontainers
 class EMQXSourceIntegrationTests {
-    private static final Logger LOG = LoggerFactory.getLogger(EMQXSplitEnumerator.class);
+    private static final Logger LOG = LoggerFactory.getLogger(EMQXSourceIntegrationTests.class);
 
     @Container
     public GenericContainer emqx = new GenericContainer(DockerImageName.parse("emqx/emqx-enterprise:5.10.0"))

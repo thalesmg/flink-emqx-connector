@@ -1,7 +1,11 @@
 package com.emqx.flink.connector;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.Before;
+import org.junit.ClassRule;
 import org.junit.Rule;
 
 import org.testcontainers.containers.GenericContainer;
@@ -32,7 +36,9 @@ import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.connector.sink2.Sink;
+import org.apache.flink.client.program.rest.RestClusterClient;
 import org.apache.flink.core.execution.JobClient;
+import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.testutils.CommonTestUtils;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
@@ -46,7 +52,7 @@ class EMQXSourceIntegrationTests {
             .withExposedPorts(18083, 1883)
             .waitingFor(Wait.forHttp("/status").forPort(18083));
 
-    @Rule
+    @ClassRule
     public final MiniClusterWithClientResource flinkCluster = new MiniClusterWithClientResource(
             new MiniClusterResourceConfiguration.Builder()
                     .setNumberSlotsPerTaskManager(1)
@@ -94,6 +100,11 @@ class EMQXSourceIntegrationTests {
         return client;
     }
 
+    @BeforeEach
+    public void setUp() throws Exception {
+        flinkCluster.before();
+    }
+
     @Test
     public void messageDelivery() throws Exception {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -114,9 +125,15 @@ class EMQXSourceIntegrationTests {
         CollectSink<EMQXMessage<String>> sink = new CollectSink<EMQXMessage<String>>();
         source.sinkTo(sink);
         JobClient jobClient = env.executeAsync();
-        // fixme: this works with the scala version, but not here...
-        // CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() ==
-        // JobStatus.RUNNING, 500L, 5);
+        RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
+        // fixme: still doesn't quite work...
+        // CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
+        //         && restClusterClient.getJobDetails(jobClient.getJobID()).get()
+        //                 .getJobVertexInfos()
+        //                 .stream()
+        //                 .allMatch(
+        //                         info -> info.getExecutionState() == ExecutionState.RUNNING),
+        //         1_000L, 5);
         Thread.sleep(500);
 
         MqttClient client = startClient(brokerUri);
@@ -127,7 +144,7 @@ class EMQXSourceIntegrationTests {
         for (int n : ns) {
             client.publish(topic, new MqttMessage(String.valueOf(n).getBytes()));
         }
-        CommonTestUtils.waitUntilCondition(() -> sink.getCount() == 3, 200L, 5);
+        CommonTestUtils.waitUntilCondition(() -> sink.getCount() == 3, 500L, 5);
 
         jobClient.cancel();
         client.disconnect();

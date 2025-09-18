@@ -1,9 +1,16 @@
 package com.emqx.flink.connector;
 
+import java.io.Serializable;
+
 import org.apache.flink.api.connector.source.SourceSplit;
 
-class EMQXSourceSplit implements SourceSplit {
+class EMQXSourceSplit implements SourceSplit, Serializable {
+    private int id;
+    EMQXSourceSplit(int id) {
+        this.id = id;
+    }
+
     public String splitId() {
-        return "dummy";
+        return String.valueOf(id);
     }
 }

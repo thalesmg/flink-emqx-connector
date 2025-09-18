@@ -22,6 +22,7 @@ public class CollectSink<OUT> implements Sink<OUT> {
 
     @Override
     public SinkWriter<OUT> createWriter(WriterInitContext arg0) throws IOException {
+        count.set(0);
         return new CollectSinkWriter();
     }
 

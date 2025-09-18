@@ -1,3 +1,5 @@
 package com.emqx.flink.connector;
 
-public class EMQXCheckpoint {}
+import java.io.Serializable;
+
+public class EMQXCheckpoint implements Serializable {}

@@ -2,6 +2,10 @@ package com.emqx.flink.connector;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.Before;
@@ -38,7 +42,9 @@ import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.connector.sink2.Sink;
 import org.apache.flink.client.program.rest.RestClusterClient;
 import org.apache.flink.core.execution.JobClient;
+import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.runtime.execution.ExecutionState;
+import org.apache.flink.runtime.rest.messages.job.JobDetailsInfo;
 import org.apache.flink.runtime.testutils.CommonTestUtils;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
@@ -48,14 +54,15 @@ class EMQXSourceIntegrationTests {
     private static final Logger LOG = LoggerFactory.getLogger(EMQXSourceIntegrationTests.class);
 
     @Container
-    public GenericContainer emqx = new GenericContainer(DockerImageName.parse("emqx/emqx-enterprise:5.10.0"))
+    public static final GenericContainer emqx = new GenericContainer(
+            DockerImageName.parse("emqx/emqx-enterprise:5.10.0"))
             .withExposedPorts(18083, 1883)
             .waitingFor(Wait.forHttp("/status").forPort(18083));
 
     @ClassRule
     public final MiniClusterWithClientResource flinkCluster = new MiniClusterWithClientResource(
             new MiniClusterResourceConfiguration.Builder()
-                    .setNumberSlotsPerTaskManager(1)
+                    .setNumberSlotsPerTaskManager(3)
                     .setNumberTaskManagers(1)
                     .build());
 
@@ -125,15 +132,16 @@ class EMQXSourceIntegrationTests {
         CollectSink<EMQXMessage<String>> sink = new CollectSink<EMQXMessage<String>>();
         source.sinkTo(sink);
         JobClient jobClient = env.executeAsync();
-        RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
         // fixme: still doesn't quite work...
-        // CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
-        //         && restClusterClient.getJobDetails(jobClient.getJobID()).get()
-        //                 .getJobVertexInfos()
-        //                 .stream()
-        //                 .allMatch(
-        //                         info -> info.getExecutionState() == ExecutionState.RUNNING),
-        //         1_000L, 5);
+        // RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
+        // CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() ==
+        // JobStatus.RUNNING
+        // && restClusterClient.getJobDetails(jobClient.getJobID()).get()
+        // .getJobVertexInfos()
+        // .stream()
+        // .allMatch(
+        // info -> info.getExecutionState() == ExecutionState.RUNNING),
+        // 1_000L, 5);
         Thread.sleep(500);
 
         MqttClient client = startClient(brokerUri);
@@ -147,6 +155,77 @@ class EMQXSourceIntegrationTests {
         CommonTestUtils.waitUntilCondition(() -> sink.getCount() == 3, 500L, 5);
 
         jobClient.cancel();
+        client.disconnect();
+        client.close();
+    }
+
+    @Test
+    public void stopWithSavepoint() throws Exception {
+        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(3);
+        env.enableCheckpointing(500);
+        String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
+        String clientid = "cid";
+        String groupName = "gname";
+        String topicFilter = "t/#";
+        int qos = 1;
+        StringDeserializer deserializer = new StringDeserializer();
+
+        EMQXSource<String> emqxSource = new EMQXSource<String>(brokerUri, clientid, groupName,
+                topicFilter,
+                qos,
+                deserializer);
+        DataStreamSource<EMQXMessage<String>> source = env.fromSource(emqxSource, WatermarkStrategy.noWatermarks(),
+                "emqx");
+        CollectSink<EMQXMessage<String>> sink = new CollectSink<EMQXMessage<String>>();
+        source.sinkTo(sink);
+        JobClient jobClient = env.executeAsync();
+        Thread.sleep(500);
+        RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
+        // CommonTestUtils.waitUntilCondition(() -> {
+        // JobDetailsInfo jobDetails =
+        // restClusterClient.getJobDetails(jobClient.getJobID()).get();
+        // LOG.warn(">>>>>>>>>>>>>>>>>>>>>>>>>>>> vertices: {}",
+        // jobDetails.getJobVertexInfos());
+        // LOG.warn(">>>>>>>>>>>>>>>>>>>>>>>>>>>> plan nodes: {}",
+        // jobDetails.getPlan().getNodes());
+        // return jobClient.getJobStatus().get() == JobStatus.RUNNING
+        // && restClusterClient.getJobDetails(jobClient.getJobID()).get()
+        // .getJobVertexInfos()
+        // .stream()
+        // .allMatch(
+        // info -> {
+        // LOG.warn(">>>>>>>>>>>>>>>> info: {}: {}", info.getJobVertexID(), info);
+        // return info.getExecutionState() == ExecutionState.RUNNING;
+        // });
+        // },
+        // 1_000L, 5);
+
+        MqttClient client = startClient(brokerUri);
+        String topic = "t/1";
+        // for debugging
+        client.subscribe(topicFilter, qos);
+        List<String> msgs = IntStream.range(0, 10).mapToObj(String::valueOf).collect(Collectors.toList());
+        for (String msg : msgs) {
+            client.publish(topic, new MqttMessage(msg.getBytes()));
+        }
+        CommonTestUtils.waitUntilCondition(() -> sink.getCount() == msgs.size(), 500L, 5);
+
+        CommonTestUtils.waitUntilCondition(() -> {
+            JobDetailsInfo jobDetails = restClusterClient.getJobDetails(jobClient.getJobID()).get();
+            return jobClient.getJobStatus().get() == JobStatus.RUNNING
+                    && restClusterClient.getJobDetails(jobClient.getJobID()).get()
+                            .getJobVertexInfos()
+                            .stream()
+                            .allMatch(
+                                    info -> info.getExecutionState() == ExecutionState.RUNNING);
+        },
+                1_000L, 5);
+
+        Thread.sleep(5_000);
+        jobClient
+                .stopWithSavepoint(false, "/tmp/bah", SavepointFormatType.CANONICAL)
+                .get();
         client.disconnect();
         client.close();
     }

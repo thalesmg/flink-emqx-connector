@@ -101,6 +101,7 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
 
     @Override
     public void start() {
+        context.sendSplitRequest();
         try {
             client = startClient(brokerUri, clientid, groupName, topicFilter, qos, deserializer);
         } catch (Exception e) {
@@ -145,5 +146,12 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     @Override
     public List<EMQXSourceSplit> snapshotState(long checkpointId) {
         return Collections.emptyList();
+    }
+
+    @Override
+    public void notifyCheckpointComplete(long checkpointId) throws Exception {
+        // TODO Auto-generated method stub
+        LOG.debug("checkpoint complete: {}", checkpointId);
+        SourceReader.super.notifyCheckpointComplete(checkpointId);
     }
 }

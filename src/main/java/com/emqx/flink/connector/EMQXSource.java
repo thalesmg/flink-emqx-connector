@@ -66,8 +66,8 @@ public class EMQXSource<OUT>
 
     @Override
     public SplitEnumerator<EMQXSourceSplit, EMQXCheckpoint> createEnumerator(
-            SplitEnumeratorContext<EMQXSourceSplit> arg0) throws Exception {
-        return new EMQXSplitEnumerator();
+            SplitEnumeratorContext<EMQXSourceSplit> context) throws Exception {
+        return new EMQXSplitEnumerator(context);
     }
 
     @Override
@@ -90,8 +90,8 @@ public class EMQXSource<OUT>
 
     @Override
     public SimpleVersionedSerializer<EMQXCheckpoint> getEnumeratorCheckpointSerializer() {
-        // TODO Auto-generated method stub
-        return null;
+        LOG.debug("getEnumeratorCheckpointSerializer");
+        return new SimpleSerializer<EMQXCheckpoint>();
     }
 
     @Override
@@ -104,7 +104,7 @@ public class EMQXSource<OUT>
     @Override
     public SplitEnumerator<EMQXSourceSplit, EMQXCheckpoint> restoreEnumerator(
             SplitEnumeratorContext<EMQXSourceSplit> enumContext, EMQXCheckpoint checkpoint) throws Exception {
-        // TODO Auto-generated method stub
+        LOG.debug("restoreEnumerator");
         return null;
     }
 }

@@ -2,6 +2,8 @@ package com.emqx.flink.connector;
 
 import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -10,6 +12,8 @@ import java.io.ObjectOutputStream;
 
 // TODO: use another serializer implementation for real; just for PoC
 public class SimpleSerializer<T> implements SimpleVersionedSerializer<T> {
+    private static final Logger LOG = LoggerFactory.getLogger(SimpleSerializer.class);
+
     @Override
     public byte[] serialize(T obj) throws IOException {
         ByteArrayOutputStream boas = new ByteArrayOutputStream();

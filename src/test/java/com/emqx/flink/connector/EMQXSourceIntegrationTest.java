@@ -132,17 +132,15 @@ class EMQXSourceIntegrationTests {
         CollectSink<EMQXMessage<String>> sink = new CollectSink<EMQXMessage<String>>();
         source.sinkTo(sink);
         JobClient jobClient = env.executeAsync();
-        // fixme: still doesn't quite work...
-        // RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
-        // CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() ==
-        // JobStatus.RUNNING
-        // && restClusterClient.getJobDetails(jobClient.getJobID()).get()
-        // .getJobVertexInfos()
-        // .stream()
-        // .allMatch(
-        // info -> info.getExecutionState() == ExecutionState.RUNNING),
-        // 1_000L, 5);
-        Thread.sleep(500);
+        RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
+        CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
+                && restClusterClient.getJobDetails(jobClient.getJobID()).get()
+                        .getJobVertexInfos()
+                        .stream()
+                        .allMatch(
+                                info -> info.getExecutionState() == ExecutionState.RUNNING),
+                1_000L, 5);
+        // Thread.sleep(500);
 
         MqttClient client = startClient(brokerUri);
         String topic = "t/1";
@@ -182,24 +180,13 @@ class EMQXSourceIntegrationTests {
         JobClient jobClient = env.executeAsync();
         Thread.sleep(500);
         RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
-        // CommonTestUtils.waitUntilCondition(() -> {
-        // JobDetailsInfo jobDetails =
-        // restClusterClient.getJobDetails(jobClient.getJobID()).get();
-        // LOG.warn(">>>>>>>>>>>>>>>>>>>>>>>>>>>> vertices: {}",
-        // jobDetails.getJobVertexInfos());
-        // LOG.warn(">>>>>>>>>>>>>>>>>>>>>>>>>>>> plan nodes: {}",
-        // jobDetails.getPlan().getNodes());
-        // return jobClient.getJobStatus().get() == JobStatus.RUNNING
-        // && restClusterClient.getJobDetails(jobClient.getJobID()).get()
-        // .getJobVertexInfos()
-        // .stream()
-        // .allMatch(
-        // info -> {
-        // LOG.warn(">>>>>>>>>>>>>>>> info: {}: {}", info.getJobVertexID(), info);
-        // return info.getExecutionState() == ExecutionState.RUNNING;
-        // });
-        // },
-        // 1_000L, 5);
+        CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
+                && restClusterClient.getJobDetails(jobClient.getJobID()).get()
+                        .getJobVertexInfos()
+                        .stream()
+                        .allMatch(
+                                info -> info.getExecutionState() == ExecutionState.RUNNING),
+                1_000L, 5);
 
         MqttClient client = startClient(brokerUri);
         String topic = "t/1";

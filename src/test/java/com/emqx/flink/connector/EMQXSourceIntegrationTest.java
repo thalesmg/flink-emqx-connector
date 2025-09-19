@@ -178,7 +178,7 @@ class EMQXSourceIntegrationTests {
         CollectSink<EMQXMessage<String>> sink = new CollectSink<EMQXMessage<String>>();
         source.sinkTo(sink);
         JobClient jobClient = env.executeAsync();
-        Thread.sleep(500);
+
         RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
         CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
                 && restClusterClient.getJobDetails(jobClient.getJobID()).get()
@@ -209,7 +209,6 @@ class EMQXSourceIntegrationTests {
         },
                 1_000L, 5);
 
-        Thread.sleep(5_000);
         jobClient
                 .stopWithSavepoint(false, "/tmp/bah", SavepointFormatType.CANONICAL)
                 .get();

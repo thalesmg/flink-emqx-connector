@@ -48,6 +48,7 @@ public class EMQXSplitEnumerator implements SplitEnumerator<EMQXSourceSplit, EMQ
     public void handleSplitRequest(int subTaskId, @Nullable String requesterHostname) {
         // TODO Auto-generated method stub
         LOG.debug("handleSplitRequest: {}, {}", subTaskId, requesterHostname);
+        LOG.debug("handleSplitRequest: parallelism: {}", context.currentParallelism());
         context.assignSplit(new EMQXSourceSplit(subTaskId), subTaskId);
     }
 
@@ -55,7 +56,7 @@ public class EMQXSplitEnumerator implements SplitEnumerator<EMQXSourceSplit, EMQ
     public EMQXCheckpoint snapshotState(long checkpointId) throws Exception {
         // TODO Auto-generated method stub
         LOG.debug("snapshot: {}", checkpointId);
-        return new EMQXCheckpoint();
+        return new EMQXCheckpoint(checkpointId);
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.emqx.flink.connector;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
@@ -39,8 +40,10 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     private String topicFilter;
     private int qos;
     private DeserializationSchema<OUT> deserializer;
+    private List<EMQXSourceSplit> splits = new ArrayList<>();
 
-    EMQXSourceReader(SourceReaderContext context, String brokerUri, String clientid, String groupName, String topicFilter, int qos,
+    EMQXSourceReader(SourceReaderContext context, String brokerUri, String clientid, String groupName,
+            String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer) {
         this.context = context;
         this.brokerUri = brokerUri;
@@ -81,6 +84,7 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
 
             @Override
             public void messageArrived(String topic, MqttMessage message) throws Exception {
+                LOG.debug("received message: topic: {}; id: {}", topic, message.getId());
                 OUT decoded = deserializer.deserialize(message.getPayload());
                 EMQXMessage<OUT> emqxMessage = new EMQXMessage<>(
                         topic, message.getQos(), message.isRetained(), message.getProperties(), decoded);
@@ -120,6 +124,7 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     @Override
     public void addSplits(List<EMQXSourceSplit> splits) {
         LOG.debug("Adding splits for clientid {}; splits: {}", clientid, splits);
+        this.splits.addAll(splits);
     }
 
     @Override
@@ -145,7 +150,9 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
 
     @Override
     public List<EMQXSourceSplit> snapshotState(long checkpointId) {
-        return Collections.emptyList();
+        // TODO stub
+        LOG.debug("snapshotState: checkpointId: {}; splits: {}", checkpointId, splits);
+        return splits;
     }
 
     @Override

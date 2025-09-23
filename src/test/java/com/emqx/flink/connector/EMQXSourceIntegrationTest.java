@@ -122,7 +122,7 @@ class EMQXSourceIntegrationTests {
         env.enableCheckpointing(500);
         String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
         String clientid = "cid0-";
-        String groupName = "gname";
+        String groupName = "gname0";
         String topicFilter = "t/#";
         int qos = 1;
         StringDeserializer deserializer = new StringDeserializer();
@@ -167,7 +167,7 @@ class EMQXSourceIntegrationTests {
         env.setParallelism(3);
         String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
         String clientid = "cid1-";
-        String groupName = "gname";
+        String groupName = "gname1";
         String topicFilter = "t/#";
         int qos = 1;
         StringDeserializer deserializer = new StringDeserializer();

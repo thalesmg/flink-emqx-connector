@@ -41,6 +41,8 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     private int qos;
     private DeserializationSchema<OUT> deserializer;
     private List<EMQXSourceSplit> splits = new ArrayList<>();
+    // TODO: just testing
+    private List<Integer> msgIdsToAck = new ArrayList<>();
 
     EMQXSourceReader(SourceReaderContext context, String brokerUri, String clientid, String groupName,
             String topicFilter, int qos,
@@ -84,19 +86,25 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
 
             @Override
             public void messageArrived(String topic, MqttMessage message) throws Exception {
-                LOG.debug("received message: topic: {}; id: {}", topic, message.getId());
+                LOG.debug("received message: topic: {}; {}", topic, message.toDebugString());
                 OUT decoded = deserializer.deserialize(message.getPayload());
                 EMQXMessage<OUT> emqxMessage = new EMQXMessage<>(
-                        topic, message.getQos(), message.isRetained(), message.getProperties(), decoded);
+                        message.getId(), topic, message.getQos(), message.isRetained(), message.getProperties(),
+                        decoded);
                 queue.add(emqxMessage);
                 CompletableFuture<Void> cachedPreviousFuture = (CompletableFuture<Void>) availabilityHelper
                         .getAvailableFuture();
                 cachedPreviousFuture.complete(null);
+                // FIXME: remove!! only testing unacked replay!!
+                Object lock = new Object();
+                lock.wait();
             }
         };
         connOpts.setCleanStart(false);
         connOpts.setAutomaticReconnect(true);
+        connOpts.setSessionExpiryInterval(60L);
         client.setCallback(callback);
+        client.setManualAcks(true);
         client.connect(connOpts);
         String subTopic = "$share/" + groupName + "/" + topicFilter;
         client.subscribe(subTopic, qos);
@@ -108,6 +116,7 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
         context.sendSplitRequest();
         try {
             client = startClient(brokerUri, clientid, groupName, topicFilter, qos, deserializer);
+            LOG.info("started mqtt client for clientid {}", clientid);
         } catch (Exception e) {
             LOG.error("Error starting client: {}", e.getMessage(), e);
         }
@@ -143,6 +152,7 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
         if (value == null) {
             return InputStatus.NOTHING_AVAILABLE;
         } else {
+            msgIdsToAck.add(value.id);
             output.collect(value);
             return InputStatus.MORE_AVAILABLE;
         }
@@ -151,7 +161,10 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     @Override
     public List<EMQXSourceSplit> snapshotState(long checkpointId) {
         // TODO stub
-        LOG.debug("snapshotState: checkpointId: {}; splits: {}", checkpointId, splits);
+        splits.forEach((split) -> split.putIds(msgIdsToAck));
+        LOG.debug("snapshotState: checkpointId: {}; splits: {}; msg ids to ack: {}",
+                checkpointId, splits, msgIdsToAck);
+        msgIdsToAck.clear();
         return splits;
     }
 

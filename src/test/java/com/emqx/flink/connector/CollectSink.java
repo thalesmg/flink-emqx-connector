@@ -16,12 +16,17 @@ public class CollectSink<OUT> implements Sink<OUT> {
     static private AtomicInteger count = new AtomicInteger();
     private ArrayList<OUT> results = new ArrayList<>();
 
+    CollectSink() {
+        count.set(0);
+    }
+
     public int getCount() {
         return count.get();
     }
 
     @Override
-    public SinkWriter<OUT> createWriter(WriterInitContext arg0) throws IOException {
+    public SinkWriter<OUT> createWriter(WriterInitContext context) throws IOException {
+        LOG.info("creating sink writer; context: {}", context);
         count.set(0);
         return new CollectSinkWriter();
     }

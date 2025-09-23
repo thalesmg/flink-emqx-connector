@@ -27,7 +27,8 @@ public class SimpleSerializer<T> implements SimpleVersionedSerializer<T> {
         ByteArrayInputStream bais = new ByteArrayInputStream(serialized);
         ObjectInputStream ois = new ObjectInputStream(bais);
         try {
-            return (T) ois.readObject();
+            T res = (T) ois.readObject();
+            return res;
         } catch (Exception e) {
             System.err.println(e.getMessage());
             e.printStackTrace();

@@ -46,18 +46,18 @@ public class EMQXSource<OUT>
     private static final Logger LOG = LoggerFactory.getLogger(EMQXSource.class);
 
     private String brokerUri;
-    private String clientid;
+    private String baseClientid;
     private String groupName;
     private String topicFilter;
     private int qos;
     private DeserializationSchema<OUT> deserializer;
 
-    public EMQXSource(String brokerUri, String clientid, String groupName, String topicFilter, int qos,
+    public EMQXSource(String brokerUri, String baseClientid, String groupName, String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer) {
         Preconditions.checkArgument(0 <= qos && qos <= 2, "invalid qos: %", qos);
         // TODO: validate group name and clientid
         this.brokerUri = brokerUri;
-        this.clientid = clientid;
+        this.baseClientid = baseClientid;
         this.groupName = groupName;
         this.topicFilter = topicFilter;
         this.qos = qos;
@@ -67,7 +67,7 @@ public class EMQXSource<OUT>
     @Override
     public SplitEnumerator<EMQXSourceSplit, EMQXCheckpoint> createEnumerator(
             SplitEnumeratorContext<EMQXSourceSplit> context) throws Exception {
-        return new EMQXSplitEnumerator(context);
+        return new EMQXSplitEnumerator(context, baseClientid);
     }
 
     @Override
@@ -77,13 +77,13 @@ public class EMQXSource<OUT>
 
     @Override
     public SimpleVersionedSerializer<EMQXSourceSplit> getSplitSerializer() {
-        return new SimpleSerializer<EMQXSourceSplit>();
+        return new EMQXSplitSerializer();
     }
 
     @Override
     public SourceReader<EMQXMessage<OUT>, EMQXSourceSplit> createReader(SourceReaderContext context) throws Exception {
         int subTaskId = context.getIndexOfSubtask();
-        String newClientid = clientid + subTaskId;
+        String newClientid = mkClientid(baseClientid, subTaskId);
         LOG.debug("Starting Source Reader; clientid: {}; group name: {}", newClientid, groupName);
         return new EMQXSourceReader<>(context, brokerUri, newClientid, groupName, topicFilter, qos, deserializer);
     }
@@ -106,5 +106,9 @@ public class EMQXSource<OUT>
             SplitEnumeratorContext<EMQXSourceSplit> enumContext, EMQXCheckpoint checkpoint) throws Exception {
         LOG.debug("restoreEnumerator");
         return null;
+    }
+
+    static public String mkClientid(String baseClientid, int subTaskId) {
+        return String.format("%s%d", baseClientid, subTaskId);
     }
 }

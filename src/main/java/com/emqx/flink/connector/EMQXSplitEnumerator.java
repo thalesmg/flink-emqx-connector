@@ -15,9 +15,11 @@ public class EMQXSplitEnumerator implements SplitEnumerator<EMQXSourceSplit, EMQ
     private static final Logger LOG = LoggerFactory.getLogger(EMQXSplitEnumerator.class);
 
     private SplitEnumeratorContext<EMQXSourceSplit> context;
+    private String baseClientid;
 
-    EMQXSplitEnumerator(SplitEnumeratorContext<EMQXSourceSplit> context) {
+    EMQXSplitEnumerator(SplitEnumeratorContext<EMQXSourceSplit> context, String baseClientid) {
         this.context = context;
+        this.baseClientid = baseClientid;
     }
 
     @Override
@@ -49,7 +51,7 @@ public class EMQXSplitEnumerator implements SplitEnumerator<EMQXSourceSplit, EMQ
         // TODO Auto-generated method stub
         LOG.debug("handleSplitRequest: {}, {}", subTaskId, requesterHostname);
         LOG.debug("handleSplitRequest: parallelism: {}", context.currentParallelism());
-        context.assignSplit(new EMQXSourceSplit(subTaskId), subTaskId);
+        context.assignSplit(new EMQXSourceSplit(mkClientid(subTaskId)), subTaskId);
     }
 
     @Override
@@ -64,5 +66,9 @@ public class EMQXSplitEnumerator implements SplitEnumerator<EMQXSourceSplit, EMQ
         // TODO Auto-generated method
         LOG.debug("checkpoint complete: {}", checkpointId);
         SplitEnumerator.super.notifyCheckpointComplete(checkpointId);
+    }
+
+    String mkClientid(int subTaskId) {
+        return EMQXSource.mkClientid(baseClientid, subTaskId);
     }
 }

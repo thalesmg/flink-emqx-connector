@@ -24,7 +24,7 @@ import org.testcontainers.containers.wait.strategy.Wait;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
+import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
@@ -41,6 +41,8 @@ import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.connector.sink2.Sink;
 import org.apache.flink.client.program.rest.RestClusterClient;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.StateRecoveryOptions;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.runtime.execution.ExecutionState;
@@ -57,6 +59,7 @@ class EMQXSourceIntegrationTests {
     public static final GenericContainer emqx = new GenericContainer(
             DockerImageName.parse("emqx/emqx-enterprise:5.10.0"))
             .withExposedPorts(18083, 1883)
+            .withEnv("EMQX_LOG__CONSOLE_HANDLER__LEVEL", "debug")
             .waitingFor(Wait.forHttp("/status").forPort(18083));
 
     @ClassRule
@@ -116,8 +119,9 @@ class EMQXSourceIntegrationTests {
     public void messageDelivery() throws Exception {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(3);
+        env.enableCheckpointing(500);
         String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
-        String clientid = "cid";
+        String clientid = "cid0-";
         String groupName = "gname";
         String topicFilter = "t/#";
         int qos = 1;
@@ -161,9 +165,8 @@ class EMQXSourceIntegrationTests {
     public void stopWithSavepoint() throws Exception {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(3);
-        env.enableCheckpointing(500);
         String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
-        String clientid = "cid";
+        String clientid = "cid1-";
         String groupName = "gname";
         String topicFilter = "t/#";
         int qos = 1;
@@ -199,7 +202,6 @@ class EMQXSourceIntegrationTests {
         CommonTestUtils.waitUntilCondition(() -> sink.getCount() == msgs.size(), 500L, 5);
 
         CommonTestUtils.waitUntilCondition(() -> {
-            JobDetailsInfo jobDetails = restClusterClient.getJobDetails(jobClient.getJobID()).get();
             return jobClient.getJobStatus().get() == JobStatus.RUNNING
                     && restClusterClient.getJobDetails(jobClient.getJobID()).get()
                             .getJobVertexInfos()
@@ -209,10 +211,35 @@ class EMQXSourceIntegrationTests {
         },
                 1_000L, 5);
 
-        jobClient
+        String savepointPath = jobClient
                 .stopWithSavepoint(false, "/tmp/bah", SavepointFormatType.CANONICAL)
                 .get();
         client.disconnect();
         client.close();
+
+        StreamExecutionEnvironment env2 = StreamExecutionEnvironment.getExecutionEnvironment();
+        Configuration config = new Configuration();
+        config.set(StateRecoveryOptions.SAVEPOINT_PATH, savepointPath);
+        env2.configure(config);
+
+        source = env2.fromSource(emqxSource, WatermarkStrategy.noWatermarks(), "emqx");
+        CollectSink<EMQXMessage<String>> sink2 = new CollectSink<EMQXMessage<String>>();
+        source.sinkTo(sink2);
+
+        JobClient jobClient2 = env2.executeAsync();
+
+        CommonTestUtils.waitUntilCondition(() -> {
+            return jobClient2.getJobStatus().get() == JobStatus.RUNNING
+                    && restClusterClient.getJobDetails(jobClient2.getJobID()).get()
+                            .getJobVertexInfos()
+                            .stream()
+                            .allMatch(
+                                    info -> info.getExecutionState() == ExecutionState.RUNNING);
+        },
+                1_000L, 5);
+        // Should replay the un-acked messages
+        CommonTestUtils.waitUntilCondition(() -> sink2.getCount() == msgs.size(), 500L, 5);
+
+        jobClient2.cancel().get();
     }
 }

@@ -28,12 +28,6 @@ public class EMQXSplitSerializer implements SimpleVersionedSerializer<EMQXSource
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 DataOutputStream out = new DataOutputStream(baos)) {
             out.writeUTF(split.getClientid());
-            List<Integer> messageIdsToCheckpoint = split.getIds();
-            int numMessageIds = messageIdsToCheckpoint.size();
-            out.writeInt(numMessageIds);
-            for (Integer msgId : messageIdsToCheckpoint) {
-                out.writeInt(msgId);
-            }
             out.flush();
             return baos.toByteArray();
         }
@@ -45,13 +39,7 @@ public class EMQXSplitSerializer implements SimpleVersionedSerializer<EMQXSource
         try (ByteArrayInputStream bais = new ByteArrayInputStream(serialized);
                 DataInputStream in = new DataInputStream(bais)) {
             String clientid = in.readUTF();
-            int numMessageIds = in.readInt();
-            ArrayList<Integer> msgIds = new ArrayList<>();
-            for (int i = 0; i < numMessageIds; i++) {
-                int msgId = in.readInt();
-                msgIds.add(msgId);
-            }
-            return new EMQXSourceSplit(clientid, msgIds);
+            return new EMQXSourceSplit(clientid);
         }
     }
 }

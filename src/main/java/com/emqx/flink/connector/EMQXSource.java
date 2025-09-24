@@ -45,18 +45,20 @@ public class EMQXSource<OUT>
         implements Source<EMQXMessage<OUT>, EMQXSourceSplit, EMQXCheckpoint>, ResultTypeQueryable<EMQXMessage<OUT>> {
     private static final Logger LOG = LoggerFactory.getLogger(EMQXSource.class);
 
-    private String brokerUri;
+    private String brokerHost;
+    private int brokerPort;
     private String baseClientid;
     private String groupName;
     private String topicFilter;
     private int qos;
     private DeserializationSchema<OUT> deserializer;
 
-    public EMQXSource(String brokerUri, String baseClientid, String groupName, String topicFilter, int qos,
+    public EMQXSource(String brokerHost, int brokerPort, String baseClientid, String groupName, String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer) {
         Preconditions.checkArgument(0 <= qos && qos <= 2, "invalid qos: %", qos);
         // TODO: validate group name and clientid
-        this.brokerUri = brokerUri;
+        this.brokerHost = brokerHost;
+        this.brokerPort = brokerPort;
         this.baseClientid = baseClientid;
         this.groupName = groupName;
         this.topicFilter = topicFilter;
@@ -85,7 +87,7 @@ public class EMQXSource<OUT>
         int subTaskId = context.getIndexOfSubtask();
         String newClientid = mkClientid(baseClientid, subTaskId);
         LOG.debug("Starting Source Reader; clientid: {}; group name: {}", newClientid, groupName);
-        return new EMQXSourceReader<>(context, brokerUri, newClientid, groupName, topicFilter, qos, deserializer);
+        return new EMQXSourceReader<>(context, brokerHost, brokerPort, newClientid, groupName, topicFilter, qos, deserializer);
     }
 
     @Override

@@ -1,19 +1,32 @@
 package com.emqx.flink.connector;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.hivemq.client.mqtt.datatypes.MqttQos;
+import com.hivemq.client.mqtt.mqtt5.Mqtt5AsyncClient;
+import com.hivemq.client.mqtt.mqtt5.Mqtt5Client;
+import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5Publish;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.connector.source.ReaderOutput;
 import org.apache.flink.api.connector.source.SourceReader;
 import org.apache.flink.api.connector.source.SourceReaderContext;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.io.InputStatus;
 import org.apache.flink.streaming.runtime.io.MultipleFuturesAvailabilityHelper;
 import org.eclipse.paho.mqttv5.client.IMqttToken;
@@ -29,12 +42,13 @@ import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQXSourceSplit> {
     private static final Logger LOG = LoggerFactory.getLogger(EMQXSourceReader.class);
 
-    private Queue<EMQXMessage<OUT>> queue = new ConcurrentLinkedQueue<>();
-    private MqttClient client;
+    private Queue<Tuple2<Mqtt5Publish, EMQXMessage<OUT>>> queue = new ConcurrentLinkedQueue<>();
+    private Mqtt5AsyncClient client;
     private MultipleFuturesAvailabilityHelper availabilityHelper = new MultipleFuturesAvailabilityHelper(1);
 
     private SourceReaderContext context;
-    private String brokerUri;
+    private String brokerHost;
+    private int brokerPort;
     private String clientid;
     private String groupName;
     private String topicFilter;
@@ -42,80 +56,65 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     private DeserializationSchema<OUT> deserializer;
     private List<EMQXSourceSplit> splits = new ArrayList<>();
     // TODO: just testing
-    private List<Integer> msgIdsToAck = new ArrayList<>();
+    private final List<Mqtt5Publish> msgsToAck = new ArrayList<>();
+    private final SortedMap<Long, List<Mqtt5Publish>> checkpointsToMsgsToAck;
 
-    EMQXSourceReader(SourceReaderContext context, String brokerUri, String clientid, String groupName,
+    EMQXSourceReader(SourceReaderContext context, String brokerHost, int brokerPort, String clientid, String groupName,
             String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer) {
         this.context = context;
-        this.brokerUri = brokerUri;
+        this.brokerHost = brokerHost;
+        this.brokerPort = brokerPort;
         this.clientid = clientid;
         this.groupName = groupName;
         this.topicFilter = topicFilter;
         this.qos = qos;
         this.deserializer = deserializer;
+        this.checkpointsToMsgsToAck = Collections.synchronizedSortedMap(new TreeMap<>());
     }
 
-    MqttClient startClient(String brokerUri, String clientid, String groupName, String topicFilter, int qos,
-            DeserializationSchema<OUT> deserializer) throws MqttSecurityException, MqttException {
-        LOG.debug("Starting Source Reader with clientid {}", clientid);
-        MqttClient client = new MqttClient(brokerUri, clientid, null);
-        MqttConnectionOptions connOpts = new MqttConnectionOptions();
-        MqttCallback callback = new MqttCallback() {
-            // TODO: add logging
-
-            @Override
-            public void authPacketArrived(int reasonCode, MqttProperties properties) {
-            }
-
-            @Override
-            public void connectComplete(boolean reconnect, String serverURI) {
-            }
-
-            @Override
-            public void deliveryComplete(IMqttToken token) {
-            }
-
-            @Override
-            public void disconnected(MqttDisconnectResponse disconnectResponse) {
-            }
-
-            @Override
-            public void mqttErrorOccurred(MqttException exception) {
-            }
-
-            @Override
-            public void messageArrived(String topic, MqttMessage message) throws Exception {
-                LOG.debug("received message: topic: {}; {}", topic, message.toDebugString());
-                OUT decoded = deserializer.deserialize(message.getPayload());
-                EMQXMessage<OUT> emqxMessage = new EMQXMessage<>(
-                        message.getId(), topic, message.getQos(), message.isRetained(), message.getProperties(),
-                        decoded);
-                queue.add(emqxMessage);
-                CompletableFuture<Void> cachedPreviousFuture = (CompletableFuture<Void>) availabilityHelper
-                        .getAvailableFuture();
-                cachedPreviousFuture.complete(null);
-                // FIXME: remove!! only testing unacked replay!!
-                Object lock = new Object();
-                lock.wait();
-            }
-        };
-        connOpts.setCleanStart(false);
-        connOpts.setAutomaticReconnect(true);
-        connOpts.setSessionExpiryInterval(60L);
-        client.setCallback(callback);
-        client.setManualAcks(true);
-        client.connect(connOpts);
+    Mqtt5AsyncClient startClient2(String host, int port, String clientid, String groupName, String topicFilter, int qos,
+            DeserializationSchema<OUT> deserializer)
+            throws InterruptedException, ExecutionException {
+        Mqtt5AsyncClient client = Mqtt5Client.builder()
+                .serverHost(host)
+                .serverPort(port)
+                .identifier(clientid)
+                .automaticReconnectWithDefaultConfig()
+                .buildAsync();
+        client.connect().join();
         String subTopic = "$share/" + groupName + "/" + topicFilter;
-        client.subscribe(subTopic, qos);
+        client.subscribeWith()
+                .topicFilter(subTopic)
+                .qos(MqttQos.fromCode(qos))
+                .callback((publish) -> {
+                    LOG.debug("received message: {}", publish);
+                    OUT decoded;
+                    try {
+                        decoded = deserializer.deserialize(publish.getPayloadAsBytes());
+                        EMQXMessage<OUT> emqxMessage = new EMQXMessage<>(
+                                publish.getTopic().toString(), publish.getQos().getCode(), publish.isRetain(),
+                                publish.getUserProperties(),
+                                decoded);
+                        queue.add(new Tuple2(publish, emqxMessage));
+                        CompletableFuture<Void> cachedPreviousFuture = (CompletableFuture<Void>) availabilityHelper
+                                .getAvailableFuture();
+                        cachedPreviousFuture.complete(null);
+                    } catch (IOException e) {
+                        LOG.error("error deserializing mqtt message", e);
+                    }
+                })
+                .manualAcknowledgement(true)
+                .send()
+                .join();
         return client;
     }
 
     @Override
     public void start() {
-        context.sendSplitRequest();
+        // context.sendSplitRequest();
         try {
-            client = startClient(brokerUri, clientid, groupName, topicFilter, qos, deserializer);
+            client = startClient2(brokerHost, brokerPort, clientid, groupName, topicFilter, qos, deserializer);
             LOG.info("started mqtt client for clientid {}", clientid);
         } catch (Exception e) {
             LOG.error("Error starting client: {}", e.getMessage(), e);
@@ -124,9 +123,9 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
 
     @Override
     public void close() throws Exception {
+        LOG.info("stopping client");
         if (client != null) {
             client.disconnect();
-            client.close();
         }
     }
 
@@ -148,30 +147,47 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
 
     @Override
     public InputStatus pollNext(ReaderOutput<EMQXMessage<OUT>> output) throws Exception {
-        EMQXMessage<OUT> value = queue.poll();
-        if (value == null) {
+        Tuple2<Mqtt5Publish, EMQXMessage<OUT>> tuple = queue.poll();
+        if (tuple == null) {
             return InputStatus.NOTHING_AVAILABLE;
         } else {
-            msgIdsToAck.add(value.id);
-            output.collect(value);
+            output.collect(tuple.f1);
+            msgsToAck.add(tuple.f0);
             return InputStatus.MORE_AVAILABLE;
         }
     }
 
     @Override
     public List<EMQXSourceSplit> snapshotState(long checkpointId) {
-        // TODO stub
-        splits.forEach((split) -> split.putIds(msgIdsToAck));
-        LOG.debug("snapshotState: checkpointId: {}; splits: {}; msg ids to ack: {}",
-                checkpointId, splits, msgIdsToAck);
-        msgIdsToAck.clear();
+        LOG.debug("snapshotState: checkpointId: {}; splits: {}; msgs to ack: {}",
+                checkpointId, splits, msgsToAck);
+        List<Mqtt5Publish> msgsToAckTmp = new ArrayList<>(this.msgsToAck);
+        synchronized (checkpointsToMsgsToAck) {
+            checkpointsToMsgsToAck.put(checkpointId, msgsToAckTmp);
+        }
+        msgsToAck.clear();
         return splits;
     }
 
     @Override
     public void notifyCheckpointComplete(long checkpointId) throws Exception {
-        // TODO Auto-generated method stub
         LOG.debug("checkpoint complete: {}", checkpointId);
+        // FIXME: ack messages
+        // Subsume previous checkpoints.
+        synchronized (checkpointsToMsgsToAck) {
+            SortedMap<Long, List<Mqtt5Publish>> sm = checkpointsToMsgsToAck.subMap(
+                    checkpointsToMsgsToAck.firstKey(),
+                    // need to guard against overflow?
+                    checkpointId + 1);
+
+            Iterator<Map.Entry<Long, List<Mqtt5Publish>>> iter = sm.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<Long, List<Mqtt5Publish>> entry = iter.next();
+                LOG.debug("acking {} messages for checkpoint {}", entry.getValue().size(), entry.getKey());
+                entry.getValue().forEach(Mqtt5Publish::acknowledge);
+                iter.remove();
+            }
+        }
         SourceReader.super.notifyCheckpointComplete(checkpointId);
     }
 }

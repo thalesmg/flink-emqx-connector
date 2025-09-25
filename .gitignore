@@ -41,3 +41,5 @@ buildNumber.properties
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
 /.vscode/
+/.metals/
+/.rebel_readline_history

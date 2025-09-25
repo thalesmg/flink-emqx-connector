@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -65,6 +66,8 @@ import org.apache.flink.test.util.MiniClusterWithClientResource;
 class EMQXSourceIntegrationTests {
         private static final Logger LOG = LoggerFactory.getLogger(EMQXSourceIntegrationTests.class);
 
+        protected static final AtomicInteger testCount = new AtomicInteger(0);
+
         @Container
         public static final GenericContainer emqx = new GenericContainer(
                         DockerImageName.parse("emqx/emqx-enterprise:5.10.0"))
@@ -78,6 +81,14 @@ class EMQXSourceIntegrationTests {
                                         .setNumberSlotsPerTaskManager(3)
                                         .setNumberTaskManagers(1)
                                         .build());
+
+        String mkClientid() {
+                return String.format("cid%d-", testCount.incrementAndGet());
+        }
+
+        String mkGroupName() {
+                return String.format("gname%d-", testCount.get());
+        }
 
         MqttClient startClient(String brokerUri) throws Exception {
                 MqttClient client = new MqttClient(brokerUri, null, null);
@@ -134,8 +145,8 @@ class EMQXSourceIntegrationTests {
                 String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
                 String brokerHost = emqx.getHost();
                 int brokerPort = emqx.getMappedPort(1883);
-                String clientid = "cid0-";
-                String groupName = "gname0";
+                String clientid = mkClientid();
+                String groupName = mkGroupName();
                 String topicFilter = "t/#";
                 int qos = 1;
                 StringDeserializer deserializer = new StringDeserializer();
@@ -183,8 +194,8 @@ class EMQXSourceIntegrationTests {
                 String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
                 String brokerHost = emqx.getHost();
                 int brokerPort = emqx.getMappedPort(1883);
-                String clientid = "cid1-";
-                String groupName = "gname1";
+                String clientid = mkClientid();
+                String groupName = mkGroupName();
                 String topicFilter = "t/#";
                 int qos = 1;
                 StringDeserializer deserializer = new StringDeserializer();
@@ -245,8 +256,8 @@ class EMQXSourceIntegrationTests {
                 String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
                 String brokerHost = emqx.getHost();
                 int brokerPort = emqx.getMappedPort(1883);
-                String clientid = String.format("cid2%d-", qos);
-                String groupName = String.format("gname2%d", qos);
+                String clientid = mkClientid();
+                String groupName = mkGroupName();
                 String topicFilter = "t/#";
                 StringDeserializer deserializer = new StringDeserializer();
 
@@ -342,8 +353,8 @@ class EMQXSourceIntegrationTests {
                         String brokerHost = emqx.getHost();
                         int brokerPort = emqx.getMappedPort(1883);
                         int qos = 1;
-                        String clientid = "cid3-";
-                        String groupName = "gname3";
+                        String clientid = mkClientid();
+                        String groupName = mkGroupName();
                         String topicFilter = "t/#";
                         StringDeserializer deserializer = new StringDeserializer();
 

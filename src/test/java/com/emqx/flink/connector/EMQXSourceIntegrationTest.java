@@ -90,6 +90,25 @@ class EMQXSourceIntegrationTests {
                 return String.format("gname%d-", testCount.get());
         }
 
+        void waitUntilRunning(JobClient jobClient) throws Exception {
+                RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
+                CommonTestUtils.waitUntilCondition(() -> {
+                        JobStatus jobStatus = jobClient.getJobStatus().get();
+                        LOG.info("job {}, status: {}", jobClient.getJobID(), jobStatus);
+                        boolean verticesRunning = restClusterClient.getJobDetails(jobClient.getJobID()).get()
+                                        .getJobVertexInfos()
+                                        .stream()
+                                        .allMatch(info -> {
+                                                LOG.info("job {}, vertex {}, state: {}",
+                                                                jobClient.getJobID(),
+                                                                info.getJobVertexID(),
+                                                                info.getExecutionState());
+                                                return info.getExecutionState() == ExecutionState.RUNNING;
+                                        });
+                        return jobStatus == JobStatus.RUNNING && verticesRunning;
+                }, 1_000L, 5);
+        }
+
         MqttClient startClient(String brokerUri) throws Exception {
                 MqttClient client = new MqttClient(brokerUri, null, null);
                 MqttConnectionOptions connOpts = new MqttConnectionOptions();
@@ -161,14 +180,8 @@ class EMQXSourceIntegrationTests {
                 CollectSink<EMQXMessage<String>> sink = new CollectSink<EMQXMessage<String>>();
                 source.sinkTo(sink);
                 JobClient jobClient = env.executeAsync();
-                RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
-                CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
-                                && restClusterClient.getJobDetails(jobClient.getJobID()).get()
-                                                .getJobVertexInfos()
-                                                .stream()
-                                                .allMatch(
-                                                                info -> info.getExecutionState() == ExecutionState.RUNNING),
-                                1_000L, 5);
+
+                waitUntilRunning(jobClient);
                 // Thread.sleep(500);
 
                 MqttClient client = startClient(brokerUri);
@@ -211,14 +224,7 @@ class EMQXSourceIntegrationTests {
                 source.sinkTo(sink);
                 JobClient jobClient = env.executeAsync();
 
-                RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
-                CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
-                                && restClusterClient.getJobDetails(jobClient.getJobID()).get()
-                                                .getJobVertexInfos()
-                                                .stream()
-                                                .allMatch(
-                                                                info -> info.getExecutionState() == ExecutionState.RUNNING),
-                                1_000L, 5);
+                waitUntilRunning(jobClient);
 
                 MqttClient client = startClient(brokerUri);
                 String topic = "t/1";
@@ -229,16 +235,6 @@ class EMQXSourceIntegrationTests {
                         client.publish(topic, new MqttMessage(msg.getBytes()));
                 }
                 CommonTestUtils.waitUntilCondition(() -> sink.getCount() == msgs.size(), 500L, 5);
-
-                CommonTestUtils.waitUntilCondition(() -> {
-                        return jobClient.getJobStatus().get() == JobStatus.RUNNING
-                                        && restClusterClient.getJobDetails(jobClient.getJobID()).get()
-                                                        .getJobVertexInfos()
-                                                        .stream()
-                                                        .allMatch(
-                                                                        info -> info.getExecutionState() == ExecutionState.RUNNING);
-                },
-                                1_000L, 5);
 
                 String savepointPath = jobClient
                                 .stopWithSavepoint(false, "/tmp/bah", SavepointFormatType.CANONICAL)
@@ -273,14 +269,7 @@ class EMQXSourceIntegrationTests {
                 source.sinkTo(sink);
                 JobClient jobClient = env.executeAsync();
 
-                RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
-                CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
-                                && restClusterClient.getJobDetails(jobClient.getJobID()).get()
-                                                .getJobVertexInfos()
-                                                .stream()
-                                                .allMatch(
-                                                                info -> info.getExecutionState() == ExecutionState.RUNNING),
-                                1_000L, 5);
+                waitUntilRunning(jobClient);
 
                 MqttClient client = startClient(brokerUri);
                 String topic = "t/1";
@@ -325,15 +314,8 @@ class EMQXSourceIntegrationTests {
 
                 JobClient jobClient2 = env2.executeAsync();
 
-                CommonTestUtils.waitUntilCondition(() -> {
-                        return jobClient2.getJobStatus().get() == JobStatus.RUNNING
-                                        && restClusterClient.getJobDetails(jobClient2.getJobID()).get()
-                                                        .getJobVertexInfos()
-                                                        .stream()
-                                                        .allMatch(
-                                                                        info -> info.getExecutionState() == ExecutionState.RUNNING);
-                },
-                                1_000L, 5);
+                waitUntilRunning(jobClient2);
+
                 // Should replay the same un-acked messages as before the crash.
                 org.apache.flink.core.testutils.CommonTestUtils.waitUtil(() -> sink2.getCount() == msgs.size(),
                                 Duration.ofMillis(2_500L), Duration.ofMillis(500L),
@@ -375,14 +357,7 @@ class EMQXSourceIntegrationTests {
 
                         emqx.getDockerClient().unpauseContainerCmd(emqx.getContainerId()).exec();
 
-                        RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
-                        CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
-                                        && restClusterClient.getJobDetails(jobClient.getJobID()).get()
-                                                        .getJobVertexInfos()
-                                                        .stream()
-                                                        .allMatch(
-                                                                        info -> info.getExecutionState() == ExecutionState.RUNNING),
-                                        1_000L, 10);
+                        waitUntilRunning(jobClient);
 
                         MqttClient client = startClient(brokerUri);
                         String topic = "t/1";

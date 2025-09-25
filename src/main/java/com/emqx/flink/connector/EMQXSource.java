@@ -45,13 +45,13 @@ public class EMQXSource<OUT>
         implements Source<EMQXMessage<OUT>, EMQXSourceSplit, EMQXCheckpoint>, ResultTypeQueryable<EMQXMessage<OUT>> {
     private static final Logger LOG = LoggerFactory.getLogger(EMQXSource.class);
 
-    private String brokerHost;
-    private int brokerPort;
-    private String baseClientid;
-    private String groupName;
-    private String topicFilter;
-    private int qos;
-    private DeserializationSchema<OUT> deserializer;
+    protected String brokerHost;
+    protected int brokerPort;
+    protected String baseClientid;
+    protected String groupName;
+    protected String topicFilter;
+    protected int qos;
+    protected DeserializationSchema<OUT> deserializer;
 
     public EMQXSource(String brokerHost, int brokerPort, String baseClientid, String groupName, String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer) {

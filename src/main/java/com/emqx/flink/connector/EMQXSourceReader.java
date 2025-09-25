@@ -17,9 +17,11 @@ import java.util.concurrent.ExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.hivemq.client.mqtt.MqttGlobalPublishFilter;
 import com.hivemq.client.mqtt.datatypes.MqttQos;
 import com.hivemq.client.mqtt.mqtt5.Mqtt5AsyncClient;
 import com.hivemq.client.mqtt.mqtt5.Mqtt5Client;
+import com.hivemq.client.mqtt.mqtt5.message.connect.connack.Mqtt5ConnAck;
 import com.hivemq.client.mqtt.mqtt5.message.publish.Mqtt5Publish;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
@@ -73,6 +75,24 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
         this.checkpointsToMsgsToAck = Collections.synchronizedSortedMap(new TreeMap<>());
     }
 
+    void consumeMessage(Mqtt5Publish publish) {
+        LOG.debug("received message: {}", publish);
+        OUT decoded;
+        try {
+            decoded = deserializer.deserialize(publish.getPayloadAsBytes());
+            EMQXMessage<OUT> emqxMessage = new EMQXMessage<>(
+                    publish.getTopic().toString(), publish.getQos().getCode(), publish.isRetain(),
+                    publish.getUserProperties(),
+                    decoded);
+            queue.add(new Tuple2(publish, emqxMessage));
+            CompletableFuture<Void> cachedPreviousFuture = (CompletableFuture<Void>) availabilityHelper
+                    .getAvailableFuture();
+            cachedPreviousFuture.complete(null);
+        } catch (IOException e) {
+            LOG.error("error deserializing mqtt message", e);
+        }
+    }
+
     Mqtt5AsyncClient startClient2(String host, int port, String clientid, String groupName, String topicFilter, int qos,
             DeserializationSchema<OUT> deserializer)
             throws InterruptedException, ExecutionException {
@@ -82,31 +102,29 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
                 .identifier(clientid)
                 .automaticReconnectWithDefaultConfig()
                 .buildAsync();
-        client.connect().join();
-        String subTopic = "$share/" + groupName + "/" + topicFilter;
-        client.subscribeWith()
-                .topicFilter(subTopic)
-                .qos(MqttQos.fromCode(qos))
-                .callback((publish) -> {
-                    LOG.debug("received message: {}", publish);
-                    OUT decoded;
-                    try {
-                        decoded = deserializer.deserialize(publish.getPayloadAsBytes());
-                        EMQXMessage<OUT> emqxMessage = new EMQXMessage<>(
-                                publish.getTopic().toString(), publish.getQos().getCode(), publish.isRetain(),
-                                publish.getUserProperties(),
-                                decoded);
-                        queue.add(new Tuple2(publish, emqxMessage));
-                        CompletableFuture<Void> cachedPreviousFuture = (CompletableFuture<Void>) availabilityHelper
-                                .getAvailableFuture();
-                        cachedPreviousFuture.complete(null);
-                    } catch (IOException e) {
-                        LOG.error("error deserializing mqtt message", e);
-                    }
-                })
-                .manualAcknowledgement(true)
+        // "Fallback" flow for resuming sessions
+        client.publishes(MqttGlobalPublishFilter.REMAINING, this::consumeMessage, true);
+        // TODO: make session-expiry-interval a parameter
+        LOG.info("connecting mqtt client for {}", clientid);
+        Mqtt5ConnAck connack = client.connectWith()
+                .cleanStart(false)
+                .sessionExpiryInterval(60)
                 .send()
                 .join();
+        String subTopic = "$share/" + groupName + "/" + topicFilter;
+        if (!connack.isSessionPresent()) {
+            LOG.info("new session: subscribing to topic filter {}", subTopic);
+            client.subscribeWith()
+                    .topicFilter(subTopic)
+                    .qos(MqttQos.fromCode(qos))
+                    .callback(this::consumeMessage)
+                    .manualAcknowledgement(true)
+                    .send()
+                    .join();
+        } else {
+            LOG.info("session already present; will NOT subscribe explicitly");
+        }
+        LOG.info("mqtt client for {} connected", clientid);
         return client;
     }
 
@@ -125,7 +143,7 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     public void close() throws Exception {
         LOG.info("stopping client");
         if (client != null) {
-            client.disconnect();
+            client.disconnect().join();
         }
     }
 
@@ -172,7 +190,6 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     @Override
     public void notifyCheckpointComplete(long checkpointId) throws Exception {
         LOG.debug("checkpoint complete: {}", checkpointId);
-        // FIXME: ack messages
         // Subsume previous checkpoints.
         synchronized (checkpointsToMsgsToAck) {
             SortedMap<Long, List<Mqtt5Publish>> sm = checkpointsToMsgsToAck.subMap(

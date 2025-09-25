@@ -26,6 +26,11 @@ import org.testcontainers.utility.DockerImageName;
 
 import com.emqx.flink.connector.CollectSink;
 import com.emqx.flink.connector.EMQXSource;
+import com.hivemq.client.mqtt.MqttGlobalPublishFilter;
+import com.hivemq.client.mqtt.datatypes.MqttQos;
+import com.hivemq.client.mqtt.mqtt5.Mqtt5AsyncClient;
+import com.hivemq.client.mqtt.mqtt5.Mqtt5BlockingClient;
+import com.hivemq.client.mqtt.mqtt5.Mqtt5Client;
 
 import org.testcontainers.containers.wait.strategy.Wait;
 
@@ -37,14 +42,6 @@ import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.function.SupplierWithException;
-import org.eclipse.paho.mqttv5.client.IMqttToken;
-import org.eclipse.paho.mqttv5.client.MqttCallback;
-import org.eclipse.paho.mqttv5.client.MqttClient;
-import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
-import org.eclipse.paho.mqttv5.client.MqttDisconnectResponse;
-import org.eclipse.paho.mqttv5.common.MqttException;
-import org.eclipse.paho.mqttv5.common.MqttMessage;
-import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.connector.sink2.Sink;
 import org.apache.flink.api.connector.source.SplitEnumerator;
@@ -109,44 +106,14 @@ class EMQXSourceIntegrationTests {
                 }, 1_000L, 5);
         }
 
-        MqttClient startClient(String brokerUri) throws Exception {
-                MqttClient client = new MqttClient(brokerUri, null, null);
-                MqttConnectionOptions connOpts = new MqttConnectionOptions();
-                MqttCallback callback = new MqttCallback() {
-                        @Override
-                        public void connectComplete(boolean reconnect, String uri) {
-                                System.out.println("connected");
-                        }
-
-                        @Override
-                        public void disconnected(MqttDisconnectResponse disconnectResponse) {
-                                System.out.println("disconnected");
-                        }
-
-                        @Override
-                        public void authPacketArrived(int reasonCode, MqttProperties props) {
-                                System.out.println("auth packet arrived");
-                        }
-
-                        @Override
-                        public void deliveryComplete(IMqttToken token) {
-                                System.out.println("delivery complete");
-                        }
-
-                        @Override
-                        public void messageArrived(String topic, MqttMessage msg) throws Exception {
-                                System.out.println(String.format("message arrived: %s", new String(msg.getPayload())));
-                        }
-
-                        @Override
-                        public void mqttErrorOccurred(MqttException error) {
-                                System.out.println(String.format("error: %s", error));
-                        }
-                };
-                connOpts.setCleanStart(true);
-                connOpts.setAutomaticReconnect(false);
-                client.setCallback(callback);
-                client.connect(connOpts);
+        Mqtt5Client startClient(String brokerHost, int brokerPort) throws Exception {
+                Mqtt5AsyncClient client = Mqtt5Client.builder()
+                                .serverHost(brokerHost)
+                                .serverPort(brokerPort)
+                                .buildAsync();
+                client.publishes(MqttGlobalPublishFilter.ALL,
+                                (publish) -> LOG.info("received: {}, {}", publish, publish.getPayload()));
+                client.connect().join();
                 return client;
         }
 
@@ -160,8 +127,6 @@ class EMQXSourceIntegrationTests {
                 final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
                 env.setParallelism(3);
                 env.enableCheckpointing(500);
-                // TODO: switch client
-                String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
                 String brokerHost = emqx.getHost();
                 int brokerPort = emqx.getMappedPort(1883);
                 String clientid = mkClientid();
@@ -184,27 +149,30 @@ class EMQXSourceIntegrationTests {
                 waitUntilRunning(jobClient);
                 // Thread.sleep(500);
 
-                MqttClient client = startClient(brokerUri);
+                Mqtt5Client client = startClient(brokerHost, brokerPort);
                 String topic = "t/1";
                 // for debugging
-                client.subscribe(topicFilter, qos);
+                client.toBlocking().subscribeWith()
+                                .topicFilter(topicFilter)
+                                .qos(MqttQos.fromCode(qos));
                 int[] ns = { 1, 2, 3 };
                 for (int n : ns) {
-                        client.publish(topic, new MqttMessage(String.valueOf(n).getBytes()));
+                        client.toBlocking().publishWith()
+                                        .topic(topic)
+                                        .qos(MqttQos.fromCode(qos))
+                                        .payload(String.valueOf(n).getBytes())
+                                        .send();
                 }
                 CommonTestUtils.waitUntilCondition(() -> sink.getCount() == 3, 500L, 5);
 
                 jobClient.cancel();
-                client.disconnect();
-                client.close();
+                client.toBlocking().disconnect();
         }
 
         @Test
         public void stopWithSavepoint() throws Exception {
                 final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
                 env.setParallelism(3);
-                // TODO: switch client
-                String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
                 String brokerHost = emqx.getHost();
                 int brokerPort = emqx.getMappedPort(1883);
                 String clientid = mkClientid();
@@ -226,21 +194,26 @@ class EMQXSourceIntegrationTests {
 
                 waitUntilRunning(jobClient);
 
-                MqttClient client = startClient(brokerUri);
+                Mqtt5Client client = startClient(brokerHost, brokerPort);
                 String topic = "t/1";
                 // for debugging
-                client.subscribe(topicFilter, qos);
+                client.toBlocking().subscribeWith()
+                                .topicFilter(topicFilter)
+                                .qos(MqttQos.fromCode(qos));
                 List<String> msgs = IntStream.range(0, 10).mapToObj(String::valueOf).collect(Collectors.toList());
                 for (String msg : msgs) {
-                        client.publish(topic, new MqttMessage(msg.getBytes()));
+                        client.toBlocking().publishWith()
+                                        .topic(topic)
+                                        .qos(MqttQos.fromCode(qos))
+                                        .payload(msg.getBytes())
+                                        .send();
                 }
                 CommonTestUtils.waitUntilCondition(() -> sink.getCount() == msgs.size(), 500L, 5);
 
                 String savepointPath = jobClient
                                 .stopWithSavepoint(false, "/tmp/bah", SavepointFormatType.CANONICAL)
                                 .get();
-                client.disconnect();
-                client.close();
+                client.toBlocking().disconnect();
         }
 
         @ParameterizedTest(name = "Message QoS = {arguments}")
@@ -248,8 +221,6 @@ class EMQXSourceIntegrationTests {
         public void recoverAfterFailure(int qos) throws Exception {
                 final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
                 env.setParallelism(1);
-                // TODO: switch client
-                String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
                 String brokerHost = emqx.getHost();
                 int brokerPort = emqx.getMappedPort(1883);
                 String clientid = mkClientid();
@@ -271,19 +242,24 @@ class EMQXSourceIntegrationTests {
 
                 waitUntilRunning(jobClient);
 
-                MqttClient client = startClient(brokerUri);
+                Mqtt5Client client = startClient(brokerHost, brokerPort);
                 String topic = "t/1";
                 // for debugging
-                client.subscribe(topicFilter, qos);
+                client.toBlocking().subscribeWith()
+                                .topicFilter(topicFilter)
+                                .qos(MqttQos.fromCode(qos));
                 List<String> msgs = IntStream.range(0, 10).mapToObj(String::valueOf).collect(Collectors.toList());
                 for (String msg : msgs) {
-                        client.publish(topic, new MqttMessage(msg.getBytes()));
+                        client.toBlocking().publishWith()
+                                        .topic(topic)
+                                        .qos(MqttQos.fromCode(qos))
+                                        .payload(msg.getBytes())
+                                        .send();
                 }
 
                 CommonTestUtils.waitUntilCondition(() -> sink.getCount() == msgs.size(), 500L, 5);
 
-                client.disconnect();
-                client.close();
+                client.toBlocking().disconnect();
 
                 // Trigger crash by checkpointing
                 LOG.warn(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
@@ -330,8 +306,6 @@ class EMQXSourceIntegrationTests {
                         emqx.getDockerClient().pauseContainerCmd(emqx.getContainerId()).exec();
                         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
                         env.setParallelism(1);
-                        // TODO: switch client
-                        String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
                         String brokerHost = emqx.getHost();
                         int brokerPort = emqx.getMappedPort(1883);
                         int qos = 1;
@@ -359,17 +333,25 @@ class EMQXSourceIntegrationTests {
 
                         waitUntilRunning(jobClient);
 
-                        MqttClient client = startClient(brokerUri);
+                        Mqtt5Client client = startClient(brokerHost, brokerPort);
                         String topic = "t/1";
                         // for debugging
-                        client.subscribe(topicFilter, qos);
+                        client.toBlocking().subscribeWith()
+                                        .topicFilter(topicFilter)
+                                        .qos(MqttQos.fromCode(qos));
                         List<String> msgs = IntStream.range(0, 10).mapToObj(String::valueOf)
                                         .collect(Collectors.toList());
                         for (String msg : msgs) {
-                                client.publish(topic, new MqttMessage(msg.getBytes()));
+                                client.toBlocking().publishWith()
+                                                .topic(topic)
+                                                .qos(MqttQos.fromCode(qos))
+                                                .payload(msg.getBytes())
+                                                .send();
                         }
+
                         CommonTestUtils.waitUntilCondition(() -> sink.getCount() == msgs.size(), 500L, 5);
                         jobClient.cancel().join();
+                        client.toBlocking().disconnect();
                 } finally {
                         try {
                                 emqx.getDockerClient().unpauseContainerCmd(emqx.getContainerId()).exec();

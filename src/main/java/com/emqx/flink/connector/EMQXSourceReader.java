@@ -106,25 +106,26 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
         client.publishes(MqttGlobalPublishFilter.REMAINING, this::consumeMessage, true);
         // TODO: make session-expiry-interval a parameter
         LOG.info("connecting mqtt client for {}", clientid);
-        Mqtt5ConnAck connack = client.connectWith()
+        client.connectWith()
                 .cleanStart(false)
                 .sessionExpiryInterval(60)
                 .send()
-                .join();
-        String subTopic = "$share/" + groupName + "/" + topicFilter;
-        if (!connack.isSessionPresent()) {
-            LOG.info("new session: subscribing to topic filter {}", subTopic);
-            client.subscribeWith()
-                    .topicFilter(subTopic)
-                    .qos(MqttQos.fromCode(qos))
-                    .callback(this::consumeMessage)
-                    .manualAcknowledgement(true)
-                    .send()
-                    .join();
-        } else {
-            LOG.info("session already present; will NOT subscribe explicitly");
-        }
-        LOG.info("mqtt client for {} connected", clientid);
+                .thenAccept((connack) -> {
+                    String subTopic = "$share/" + groupName + "/" + topicFilter;
+                    if (!connack.isSessionPresent()) {
+                        LOG.info("new session: subscribing to topic filter {}", subTopic);
+                        client.subscribeWith()
+                                .topicFilter(subTopic)
+                                .qos(MqttQos.fromCode(qos))
+                                .callback(this::consumeMessage)
+                                .manualAcknowledgement(true)
+                                .send()
+                                .join();
+                    } else {
+                        LOG.info("session already present; will NOT subscribe explicitly");
+                    }
+                    LOG.info("mqtt client for {} connected", clientid);
+                });
         return client;
     }
 
@@ -133,9 +134,8 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
         // context.sendSplitRequest();
         try {
             client = startClient2(brokerHost, brokerPort, clientid, groupName, topicFilter, qos, deserializer);
-            LOG.info("started mqtt client for clientid {}", clientid);
         } catch (Exception e) {
-            LOG.error("Error starting client: {}", e.getMessage(), e);
+            LOG.error("Error starting client {}", clientid, e);
         }
     }
 

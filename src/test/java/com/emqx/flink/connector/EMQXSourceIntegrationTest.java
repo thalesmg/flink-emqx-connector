@@ -65,8 +65,6 @@ import org.apache.flink.test.util.MiniClusterWithClientResource;
 class EMQXSourceIntegrationTests {
         private static final Logger LOG = LoggerFactory.getLogger(EMQXSourceIntegrationTests.class);
 
-        private org.apache.flink.core.testutils.CommonTestUtils coreCommonUtils;
-
         @Container
         public static final GenericContainer emqx = new GenericContainer(
                         DockerImageName.parse("emqx/emqx-enterprise:5.10.0"))
@@ -248,7 +246,7 @@ class EMQXSourceIntegrationTests {
                 String brokerHost = emqx.getHost();
                 int brokerPort = emqx.getMappedPort(1883);
                 String clientid = String.format("cid2%d-", qos);
-                String groupName = String.format("gname2%d-", qos);
+                String groupName = String.format("gname2%d", qos);
                 String topicFilter = "t/#";
                 StringDeserializer deserializer = new StringDeserializer();
 
@@ -326,10 +324,74 @@ class EMQXSourceIntegrationTests {
                 },
                                 1_000L, 5);
                 // Should replay the same un-acked messages as before the crash.
-                coreCommonUtils.waitUtil(() -> sink2.getCount() == msgs.size(),
+                org.apache.flink.core.testutils.CommonTestUtils.waitUtil(() -> sink2.getCount() == msgs.size(),
                                 Duration.ofMillis(2_500L), Duration.ofMillis(500L),
                                 String.format("final count: %d", sink2.getCount()));
 
                 jobClient2.cancel().join();
+        }
+
+        @Test
+        public void startWithBrokerOffline() throws Exception {
+                try {
+                        emqx.getDockerClient().pauseContainerCmd(emqx.getContainerId()).exec();
+                        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+                        env.setParallelism(1);
+                        // TODO: switch client
+                        String brokerUri = String.format("tcp://%s:%d", emqx.getHost(), emqx.getMappedPort(1883));
+                        String brokerHost = emqx.getHost();
+                        int brokerPort = emqx.getMappedPort(1883);
+                        int qos = 1;
+                        String clientid = "cid3-";
+                        String groupName = "gname3";
+                        String topicFilter = "t/#";
+                        StringDeserializer deserializer = new StringDeserializer();
+
+                        EMQXSource<String> emqxSource = new EMQXSource<String>(brokerHost, brokerPort,
+                                        clientid,
+                                        groupName,
+                                        topicFilter,
+                                        qos,
+                                        deserializer);
+                        DataStreamSource<EMQXMessage<String>> source = env.fromSource(emqxSource,
+                                        WatermarkStrategy.noWatermarks(),
+                                        "emqx");
+                        CollectSink<EMQXMessage<String>> sink = new CollectSink<EMQXMessage<String>>();
+                        source.sinkTo(sink);
+                        JobClient jobClient = env.executeAsync();
+
+                        Thread.sleep(2_000L);
+
+                        emqx.getDockerClient().unpauseContainerCmd(emqx.getContainerId()).exec();
+
+                        RestClusterClient<?> restClusterClient = flinkCluster.getRestClusterClient();
+                        CommonTestUtils.waitUntilCondition(() -> jobClient.getJobStatus().get() == JobStatus.RUNNING
+                                        && restClusterClient.getJobDetails(jobClient.getJobID()).get()
+                                                        .getJobVertexInfos()
+                                                        .stream()
+                                                        .allMatch(
+                                                                        info -> info.getExecutionState() == ExecutionState.RUNNING),
+                                        1_000L, 10);
+
+                        MqttClient client = startClient(brokerUri);
+                        String topic = "t/1";
+                        // for debugging
+                        client.subscribe(topicFilter, qos);
+                        List<String> msgs = IntStream.range(0, 10).mapToObj(String::valueOf)
+                                        .collect(Collectors.toList());
+                        for (String msg : msgs) {
+                                client.publish(topic, new MqttMessage(msg.getBytes()));
+                        }
+                        CommonTestUtils.waitUntilCondition(() -> sink.getCount() == msgs.size(), 500L, 5);
+                        jobClient.cancel().join();
+                } finally {
+                        try {
+                                emqx.getDockerClient().unpauseContainerCmd(emqx.getContainerId()).exec();
+                        } catch (com.github.dockerjava.api.exception.InternalServerErrorException e) {
+                                if (!e.getMessage().contains("is not paused")) {
+                                        throw e;
+                                }
+                        }
+                }
         }
 }

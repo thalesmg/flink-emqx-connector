@@ -84,7 +84,7 @@ class EMQXSourceIntegrationTests {
         }
 
         String mkGroupName() {
-                return String.format("gname%d-", testCount.get());
+                return String.format("gname%d", testCount.get());
         }
 
         void waitUntilRunning(JobClient jobClient) throws Exception {

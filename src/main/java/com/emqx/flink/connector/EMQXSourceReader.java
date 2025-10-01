@@ -171,7 +171,9 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
                 checkpointId, splits, msgsToAck);
         List<Mqtt5Publish> msgsToAckTmp = new ArrayList<>(this.msgsToAck);
         synchronized (checkpointsToMsgsToAck) {
-            checkpointsToMsgsToAck.put(checkpointId, msgsToAckTmp);
+            if (msgsToAckTmp.size() > 0) {
+                checkpointsToMsgsToAck.put(checkpointId, msgsToAckTmp);
+            }
         }
         msgsToAck.clear();
         return splits;
@@ -182,17 +184,19 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
         LOG.debug("checkpoint complete: {}", checkpointId);
         // Subsume previous checkpoints.
         synchronized (checkpointsToMsgsToAck) {
-            SortedMap<Long, List<Mqtt5Publish>> sm = checkpointsToMsgsToAck.subMap(
-                    checkpointsToMsgsToAck.firstKey(),
-                    // need to guard against overflow?
-                    checkpointId + 1);
+            if (checkpointsToMsgsToAck.size() > 0) {
+                SortedMap<Long, List<Mqtt5Publish>> sm = checkpointsToMsgsToAck.subMap(
+                        checkpointsToMsgsToAck.firstKey(),
+                        // need to guard against overflow?
+                        checkpointId + 1);
 
-            Iterator<Map.Entry<Long, List<Mqtt5Publish>>> iter = sm.entrySet().iterator();
-            while (iter.hasNext()) {
-                Map.Entry<Long, List<Mqtt5Publish>> entry = iter.next();
-                LOG.debug("acking {} messages for checkpoint {}", entry.getValue().size(), entry.getKey());
-                entry.getValue().forEach(Mqtt5Publish::acknowledge);
-                iter.remove();
+                Iterator<Map.Entry<Long, List<Mqtt5Publish>>> iter = sm.entrySet().iterator();
+                while (iter.hasNext()) {
+                    Map.Entry<Long, List<Mqtt5Publish>> entry = iter.next();
+                    LOG.debug("acking {} messages for checkpoint {}", entry.getValue().size(), entry.getKey());
+                    entry.getValue().forEach(Mqtt5Publish::acknowledge);
+                    iter.remove();
+                }
             }
         }
         SourceReader.super.notifyCheckpointComplete(checkpointId);

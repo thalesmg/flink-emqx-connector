@@ -165,7 +165,7 @@ class EMQXSourceIntegrationTests {
                 }
                 CommonTestUtils.waitUntilCondition(() -> sink.getCount() == 3, 500L, 5);
 
-                jobClient.cancel();
+                jobClient.cancel().join();
                 client.toBlocking().disconnect();
         }
 

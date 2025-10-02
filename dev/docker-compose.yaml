@@ -8,6 +8,7 @@ services:
     hostname: emqx1.emqx.net
     ports:
       - 38083:18083
+      - 3883:1883
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: admin
       EMQX_NODE__NAME: emqx@emqx1.emqx.net

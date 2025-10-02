@@ -47,7 +47,6 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     private int qos;
     private DeserializationSchema<OUT> deserializer;
     private List<EMQXSourceSplit> splits = new ArrayList<>();
-    // TODO: just testing
     private final List<Mqtt5Publish> msgsToAck = new ArrayList<>();
     private final SortedMap<Long, List<Mqtt5Publish>> checkpointsToMsgsToAck;
 

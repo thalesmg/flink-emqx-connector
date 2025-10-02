@@ -3,23 +3,21 @@
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>com.emqx</groupId>
-  <artifactId>flink-emqx-connector-parent</artifactId>
-  <version>1.0-SNAPSHOT</version>
+  <parent>
+    <groupId>com.emqx</groupId>
+    <artifactId>flink-emqx-connector-parent</artifactId>
+    <version>1.0-SNAPSHOT</version>
+  </parent>
 
   <name>flink-emqx-connector</name>
-  <packaging>pom</packaging>
+  <artifactId>flink-emqx-connector-core</artifactId>
+  <packaging>jar</packaging>
   <url>https://github.com/emqx/flink-emqx-connector</url>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
   </properties>
-
-  <modules>
-    <module>flink-emqx-connector-core</module>
-    <module>flink-emqx-connector-examples</module>
-  </modules>
 
   <dependencyManagement>
     <dependencies>

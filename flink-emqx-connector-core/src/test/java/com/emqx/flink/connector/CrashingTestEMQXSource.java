@@ -25,7 +25,7 @@ public class CrashingTestEMQXSource<OUT> extends EMQXSource<OUT> {
         int subTaskId = context.getIndexOfSubtask();
         String newClientid = mkClientid(baseClientid, subTaskId);
         LOG.debug("Starting Crashing Source Reader; clientid: {}", newClientid);
-        return new EMQXSourceReader<>(context, brokerHost, brokerPort, newClientid, username, password,
+        return new EMQXSourceReader<>(context, brokerHost, brokerPort, false, newClientid, username, password,
                 deserializer) {
             @Override
             public List<EMQXSourceSplit> snapshotState(long checkpointId) {

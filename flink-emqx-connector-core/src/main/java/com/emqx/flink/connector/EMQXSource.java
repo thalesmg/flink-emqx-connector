@@ -25,6 +25,7 @@ public class EMQXSource<OUT>
 
     protected String brokerHost;
     protected int brokerPort;
+    protected boolean useTLS = false;
     protected String baseClientid;
     protected String username;
     protected String password;
@@ -33,14 +34,20 @@ public class EMQXSource<OUT>
 
     public EMQXSource(String brokerHost, int brokerPort, String baseClientid, List<Subscription> subscriptions,
             DeserializationSchema<OUT> deserializer) {
-        this(brokerHost, brokerPort, baseClientid, null, null, subscriptions, deserializer);
+        this(brokerHost, brokerPort, false, baseClientid, null, null, subscriptions, deserializer);
     }
 
     public EMQXSource(String brokerHost, int brokerPort, String baseClientid, String username, String password,
             List<Subscription> subscriptions, DeserializationSchema<OUT> deserializer) {
+                this(brokerHost, brokerPort, false, baseClientid, username, password, subscriptions, deserializer);
+    }
+
+    public EMQXSource(String brokerHost, int brokerPort, boolean useTLS, String baseClientid, String username, String password,
+            List<Subscription> subscriptions, DeserializationSchema<OUT> deserializer) {
         // TODO: validate clientid
         this.brokerHost = brokerHost;
         this.brokerPort = brokerPort;
+        this.useTLS = useTLS;
         this.baseClientid = baseClientid;
         this.username = username;
         this.password = password;
@@ -70,7 +77,7 @@ public class EMQXSource<OUT>
         int subTaskId = context.getIndexOfSubtask();
         String newClientid = mkClientid(baseClientid, subTaskId);
         LOG.debug("Creating Source Reader; clientid: {}", newClientid);
-        return new EMQXSourceReader<>(context, brokerHost, brokerPort, newClientid, username, password, deserializer);
+        return new EMQXSourceReader<>(context, brokerHost, brokerPort, useTLS, newClientid, username, password, deserializer);
     }
 
     @Override

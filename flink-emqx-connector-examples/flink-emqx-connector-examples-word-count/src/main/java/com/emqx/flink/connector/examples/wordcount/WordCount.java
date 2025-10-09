@@ -37,7 +37,7 @@ public class WordCount {
         List<Subscription> subscriptions = new ArrayList<>();
         subscriptions.add(new SharedSubscription(groupName, topicFilter, qos));
         DeserializationSchema<String> deserializer = new StringDeserializer();
-        EMQXSource<String> emqx = new EMQXSource<>(brokerHost, brokerPort, clientid, userName, password,
+        EMQXSource<String> emqx = new EMQXSource<>(brokerHost, brokerPort, true, clientid, userName, password,
                 subscriptions,
                 deserializer);
         DataStreamSource<EMQXMessage<String>> source = env.fromSource(emqx, WatermarkStrategy.noWatermarks(), "emqx");

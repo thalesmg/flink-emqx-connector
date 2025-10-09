@@ -1,6 +1,8 @@
 package com.emqx.flink.connector;
 
 import java.io.IOException;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -11,6 +13,11 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManagerFactory;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +51,7 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     private SourceReaderContext context;
     private String brokerHost;
     private int brokerPort;
+    private boolean useTLS = false;
     private String clientid;
     private String username;
     private String password;
@@ -55,12 +63,13 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     private final SortedMap<Long, List<Tuple2<Integer, Integer>>> checkpointsToMsgsToAck;
 
     EMQXSourceReader(
-            SourceReaderContext context, String brokerHost, int brokerPort, String clientid,
+            SourceReaderContext context, String brokerHost, int brokerPort, boolean useTLS, String clientid,
             String username, String password,
             DeserializationSchema<OUT> deserializer) {
         this.context = context;
         this.brokerHost = brokerHost;
         this.brokerPort = brokerPort;
+        this.useTLS = useTLS;
         this.clientid = clientid;
         this.username = username;
         this.password = password;
@@ -90,9 +99,15 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
     }
 
     MqttAsyncClient startClient(String host, int port, String clientid, String username, String password,
-            DeserializationSchema<OUT> deserializer) throws MqttException {
+            DeserializationSchema<OUT> deserializer) throws MqttException, NoSuchAlgorithmException, KeyManagementException {
 
-        String broker = String.format("tcp://%s:%d", host, port);
+        String broker;
+        if (useTLS) {
+            broker = String.format("ssl://%s:%d", host, port);
+        } else {
+            broker = String.format("tcp://%s:%d", host, port);
+        }
+
         MqttAsyncClient client = new MqttAsyncClient(broker, clientid);
 
         // Set callback for incoming messages
@@ -140,6 +155,14 @@ public class EMQXSourceReader<OUT> implements SourceReader<EMQXMessage<OUT>, EMQ
         if (username != null && !username.isEmpty() && password != null && !password.isEmpty()) {
             options.setUserName(username);
             options.setPassword(password.getBytes());
+        }
+
+        if (useTLS) {
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, tmf.getTrustManagers(), null);
+            SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
+            options.setSocketFactory(sslSocketFactory);
         }
 
         LOG.info("Connecting MQTT client for {}", clientid);

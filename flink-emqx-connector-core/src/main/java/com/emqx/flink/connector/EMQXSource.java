@@ -9,12 +9,13 @@ import org.apache.flink.api.connector.source.SplitEnumeratorContext;
 
 import java.util.List;
 
+import javax.net.ssl.TrustManagerFactory;
+
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.core.io.SimpleVersionedSerializer;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeinfo.TypeHint;
-import org.apache.flink.util.Preconditions;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,22 +26,46 @@ public class EMQXSource<OUT>
 
     protected String brokerHost;
     protected int brokerPort;
+    protected TrustManagerFactory trustManagerFactory;
     protected String baseClientid;
     protected String username;
     protected String password;
     protected DeserializationSchema<OUT> deserializer;
     protected List<Subscription> subscriptions;
 
-    public EMQXSource(String brokerHost, int brokerPort, String baseClientid, List<Subscription> subscriptions,
+    public EMQXSource(
+            String brokerHost,
+            int brokerPort,
+            String baseClientid,
+            List<Subscription> subscriptions,
             DeserializationSchema<OUT> deserializer) {
         this(brokerHost, brokerPort, baseClientid, null, null, subscriptions, deserializer);
     }
 
-    public EMQXSource(String brokerHost, int brokerPort, String baseClientid, String username, String password,
-            List<Subscription> subscriptions, DeserializationSchema<OUT> deserializer) {
+    public EMQXSource(
+            String brokerHost,
+            int brokerPort,
+            String baseClientid,
+            String username,
+            String password,
+            List<Subscription> subscriptions,
+            DeserializationSchema<OUT> deserializer) {
+        this(brokerHost, brokerPort, null, baseClientid, username, password, subscriptions, deserializer);
+    }
+
+    public EMQXSource(
+            String brokerHost,
+            int brokerPort,
+            TrustManagerFactory trustManagerFactory,
+            String baseClientid,
+            String username,
+            String password,
+            List<Subscription> subscriptions,
+            DeserializationSchema<OUT> deserializer) {
         // TODO: validate clientid
         this.brokerHost = brokerHost;
         this.brokerPort = brokerPort;
+        this.trustManagerFactory = trustManagerFactory;
         this.baseClientid = baseClientid;
         this.username = username;
         this.password = password;
@@ -70,7 +95,15 @@ public class EMQXSource<OUT>
         int subTaskId = context.getIndexOfSubtask();
         String newClientid = mkClientid(baseClientid, subTaskId);
         LOG.debug("Creating Source Reader; clientid: {}", newClientid);
-        return new EMQXSourceReader<>(context, brokerHost, brokerPort, newClientid, username, password, deserializer);
+        return new EMQXSourceReader<>(
+                context,
+                brokerHost,
+                brokerPort,
+                trustManagerFactory,
+                newClientid,
+                username,
+                password,
+                deserializer);
     }
 
     @Override

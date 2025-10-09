@@ -19,6 +19,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import javax.net.ssl.TrustManagerFactory;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -81,7 +83,7 @@ class EMQXSourceIntegrationTests {
         @Container
         public static final GenericContainer emqx = new GenericContainer(
                         DockerImageName.parse("emqx/emqx-enterprise:6.0.0"))
-                        .withExposedPorts(18083, 1883)
+                        .withExposedPorts(18083, 1883, 8883)
                         .withEnv("EMQX_LOG__CONSOLE_HANDLER__LEVEL", "debug")
                         .withEnv("EMQX_MQ__ENABLE", "true")
                         .withCopyToContainer(Transferable.of("test:secret"), "/etc/emqx/bootstrap.txt")
@@ -195,13 +197,23 @@ class EMQXSourceIntegrationTests {
                 flinkCluster.before();
         }
 
-        @Test
-        public void messageDelivery() throws Exception {
+        @ParameterizedTest(name = "use TLS = {0}")
+        @ValueSource(booleans = {false, true})
+        public void messageDelivery(boolean useTLS) throws Exception {
                 final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
                 env.setParallelism(3);
                 env.enableCheckpointing(500);
                 String brokerHost = emqx.getHost();
-                int brokerPort = emqx.getMappedPort(1883);
+                int brokerPort;
+                TrustManagerFactory trustManagerFactory = null;
+                if (useTLS) {
+                        brokerPort = emqx.getMappedPort(8883);
+                        trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+                } else {
+                        brokerPort = emqx.getMappedPort(1883);
+                }
+                String username = null;
+                String password = null;
                 String clientid = mkClientid();
                 String groupName = mkGroupName();
                 String topicFilter = "t/#";
@@ -210,7 +222,13 @@ class EMQXSourceIntegrationTests {
                 subscriptions.add(new SharedSubscription(groupName, topicFilter, qos));
                 StringDeserializer deserializer = new StringDeserializer();
 
-                EMQXSource<String> emqxSource = new EMQXSource<String>(brokerHost, brokerPort, clientid,
+                EMQXSource<String> emqxSource = new EMQXSource<String>(
+                                brokerHost,
+                                brokerPort,
+                                trustManagerFactory,
+                                username,
+                                password,
+                                clientid,
                                 subscriptions,
                                 deserializer);
                 DataStreamSource<EMQXMessage<String>> source = env.fromSource(emqxSource,
@@ -314,7 +332,7 @@ class EMQXSourceIntegrationTests {
                 // jobClient2.cancel().join();
         }
 
-        @ParameterizedTest(name = "Message QoS = {arguments}")
+        @ParameterizedTest(name = "Message QoS = {0}")
         // N.B.: At the time of writing, paho mqtt client manual acknowledgement is
         // totally broken for QoS 2, hence we don't test QoS 2 here. When it's fixed,
         // use

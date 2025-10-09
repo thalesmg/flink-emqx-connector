@@ -3,6 +3,8 @@ package com.emqx.flink.connector.examples.wordcount;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.net.ssl.TrustManagerFactory;
+
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
@@ -37,7 +39,8 @@ public class WordCount {
         List<Subscription> subscriptions = new ArrayList<>();
         subscriptions.add(new SharedSubscription(groupName, topicFilter, qos));
         DeserializationSchema<String> deserializer = new StringDeserializer();
-        EMQXSource<String> emqx = new EMQXSource<>(brokerHost, brokerPort, clientid, userName, password,
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        EMQXSource<String> emqx = new EMQXSource<>(brokerHost, brokerPort, tmf, clientid, userName, password,
                 subscriptions,
                 deserializer);
         DataStreamSource<EMQXMessage<String>> source = env.fromSource(emqx, WatermarkStrategy.noWatermarks(), "emqx");

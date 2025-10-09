@@ -3,6 +3,8 @@ package com.emqx.flink.connector;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.net.ssl.TrustManagerFactory;
+
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.connector.source.SourceReader;
 import org.apache.flink.api.connector.source.SourceReaderContext;
@@ -25,7 +27,8 @@ public class CrashingTestEMQXSource<OUT> extends EMQXSource<OUT> {
         int subTaskId = context.getIndexOfSubtask();
         String newClientid = mkClientid(baseClientid, subTaskId);
         LOG.debug("Starting Crashing Source Reader; clientid: {}", newClientid);
-        return new EMQXSourceReader<>(context, brokerHost, brokerPort, newClientid, username, password,
+        TrustManagerFactory trustManagerFactory = null;
+        return new EMQXSourceReader<>(context, brokerHost, brokerPort, trustManagerFactory, newClientid, username, password,
                 deserializer) {
             @Override
             public List<EMQXSourceSplit> snapshotState(long checkpointId) {
